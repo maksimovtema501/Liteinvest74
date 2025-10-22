@@ -3,11 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title> LITE-INVEST CHELYABINSK</title>
+<title>LITE-INVEST CHELYABINSK</title>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-<!-- Tailwind CDN (for demo visuals like original) -->
+<!-- Tailwind -->
 <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 
 <style>
@@ -33,29 +38,34 @@
   <div class="max-w-7xl mx-auto p-6">
     <header class="mb-6 flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold accent">Дневник эксперимента LITE-INVEST CHELYABINSK</h1>
-        <div class="small-muted">Локальная демо-система — добавлять трейдеров может только админ.</div>
+        <h1 class="text-2xl font-bold accent">LITE-INVEST CHELYABINSK</h1>
+        <div class="small-muted">Firebase версия — данные общие для всех</div>
       </div>
       <div id="userBox" class="text-right small-muted"></div>
     </header>
 
-    <!-- ENTRY: Login only -->
+    <!-- ENTRY: Login/Register -->
     <div id="entryPanel" class="grid grid-cols-2 gap-6">
       <div class="card p-5 rounded-lg">
-        <h3 class="text-lg font-semibold mb-2">Вход</h3>
+        <h3 class="text-lg font-semibold mb-2">Вход / Регистрация</h3>
         <div id="loginError" class="text-sm text-red-300 mb-2 hidden"></div>
-        <input id="loginUsername" class="w-full p-2 rounded input-dark mb-2" placeholder="Логин (admin / трейдер)" />
-        <input id="loginPassword" type="password" class="w-full p-2 rounded input-dark mb-3" placeholder="Пароль" />
+        <input id="loginUsername" class="w-full p-2 rounded input-dark mb-2" placeholder="Логин (только буквы/цифры)" />
+        <input id="loginPassword" type="password" class="w-full p-2 rounded input-dark mb-3" placeholder="Пароль (минимум 6 символов)" />
         <div class="flex gap-2">
           <button id="loginBtn" class="px-4 py-2 rounded bg-accent text-white">Войти</button>
+          <button id="registerBtn" class="px-4 py-2 rounded btn-soft">Регистрация</button>
         </div>
-        <div class="mt-3 small-muted">Админ добавляет трейдеров через админ-панель.</div>
+        <div class="mt-3 small-muted">
+          <strong>Тестовый аккаунт:</strong><br>
+          Логин: <strong>admin</strong><br>
+          Пароль: <strong>admin123</strong>
+        </div>
       </div>
 
       <div class="card p-5 rounded-lg">
         <h3 class="text-lg font-semibold mb-2">О системе</h3>
-        <div class="small-muted mb-2">Чистая версия — без тестовых данных. Данные сохраняются в браузере (localStorage) и Google Таблицах.</div>
-        <div class="small-muted">Стартовый депозит по умолчанию: <strong>500 ₽</strong>. Дневная просадка по умолчанию: <strong>50 ₽</strong>.</div>
+        <div class="small-muted mb-2">Firebase версия — все данные хранятся в облаке и доступны с любого компьютера в реальном времени.</div>
+        <div class="small-muted">Стартовый депозит: <strong>500 ₽</strong>. Дневная просадка: <strong>50 ₽</strong>.</div>
       </div>
     </div>
 
@@ -80,7 +90,7 @@
           <div class="card p-4 rounded-lg col-span-2">
             <div class="flex items-center justify-between mb-3">
               <h2 class="text-xl font-semibold">Турнирная таблица</h2>
-              <div class="small-muted">Клик по строке — мини-график выбранного трейдера</div>
+              <div class="small-muted">Клик по строке — график трейдера</div>
             </div>
 
             <div class="overflow-x-auto">
@@ -104,11 +114,11 @@
           </div>
 
           <aside class="card p-4 rounded-lg">
-            <h3 class="font-semibold mb-2">Быстрая статистика</h3>
+            <h3 class="font-semibold mb-2">Статистика</h3>
             <div id="quickStats" class="small-muted">—</div>
             <div class="mt-4">
               <h4 class="font-medium mb-1">Ваш профиль</h4>
-              <div id="accountHighlight" class="p-3 rounded input-dark small-muted">Зайдите в систему</div>
+              <div id="accountHighlight" class="p-3 rounded input-dark small-muted">—</div>
             </div>
           </aside>
         </div>
@@ -117,18 +127,18 @@
       <!-- Reports -->
       <section id="tabReports" class="tab-content hidden mt-6">
         <div class="card p-4 rounded-lg mb-6">
-          <h3 class="text-lg font-semibold mb-2">Добавить дневной отчёт</h3>
+          <h3 class="text-lg font-semibold mb-2">Добавить отчёт</h3>
           <div id="reportError" class="text-sm text-red-300 mb-2 hidden"></div>
 
           <div class="grid grid-cols-6 gap-3">
             <input id="repDate" type="date" class="col-span-1 p-2 rounded input-dark" />
             <select id="repTrader" class="col-span-2 p-2 rounded input-dark"></select>
             <input id="repResult" type="number" step="0.01" placeholder="Результат ₽" class="col-span-1 p-2 rounded input-dark" />
-            <input id="repDraw" type="number" step="0.01" placeholder="Дневная просадка ₽" class="col-span-1 p-2 rounded input-dark" />
+            <input id="repDraw" type="number" step="0.01" placeholder="Просадка ₽" class="col-span-1 p-2 rounded input-dark" />
             <input id="repEmotion" type="number" min="1" max="10" placeholder="Эмоции 1–10" class="col-span-1 p-2 rounded input-dark" />
             <input id="repDiscipline" type="number" min="1" max="10" placeholder="Дисциплина 1–10" class="col-span-1 p-2 rounded input-dark" />
             <div class="col-span-6 flex gap-2">
-              <button id="addReport" class="px-4 py-2 rounded bg-green-600 text-white">Сохранить отчёт</button>
+              <button id="addReport" class="px-4 py-2 rounded bg-green-600 text-white">Сохранить</button>
               <button id="resetReport" class="px-4 py-2 rounded btn-soft">Очистить</button>
             </div>
           </div>
@@ -137,7 +147,7 @@
         <div class="card p-4 rounded-lg">
           <h3 class="text-lg font-semibold mb-3">Список отчётов</h3>
           <div class="mb-3 flex items-center gap-3">
-            <label class="small-muted">Фильтр по трейдеру</label>
+            <label class="small-muted">Фильтр:</label>
             <select id="reportFilter" class="p-2 rounded input-dark"></select>
             <button id="clearFilter" class="px-3 py-1 rounded btn-soft">Сбросить</button>
           </div>
@@ -171,7 +181,7 @@
           <div class="flex gap-3 items-center mb-4">
             <select id="chartSelectType" class="p-2 rounded input-dark">
               <option value="equity">Эквити</option>
-              <option value="drawdown">Дневная просадка</option>
+              <option value="drawdown">Просадка</option>
               <option value="emotion">Эмоции</option>
               <option value="discipline">Дисциплина</option>
             </select>
@@ -188,7 +198,7 @@
       <!-- Admin -->
       <section id="tabAdmin" class="tab-content hidden mt-6">
         <div class="card p-4 rounded-lg mb-4">
-          <h3 class="text-lg font-semibold mb-2">Админка — Управление трейдерами</h3>
+          <h3 class="text-lg font-semibold mb-2">Управление трейдерами</h3>
           <div class="grid grid-cols-6 gap-3 mb-3">
             <input id="adminNewLogin" class="col-span-2 p-2 rounded input-dark" placeholder="Логин" />
             <input id="adminNewPass" type="text" class="col-span-1 p-2 rounded input-dark" placeholder="Пароль" />
@@ -196,21 +206,18 @@
             <input id="adminNewDeposit" type="number" class="col-span-1 p-2 rounded input-dark" placeholder="Депозит" value="500" />
             <input id="adminNewDraw" type="number" class="col-span-1 p-2 rounded input-dark" placeholder="Просадка" value="50" />
             <div class="col-span-4"></div>
-            <label class="col-span-2 small-muted">Цвет</label>
-            <div class="col-span-4"></div>
             <button id="adminCreateTrader" class="col-span-2 px-4 py-2 rounded bg-accent text-white">Создать трейдера</button>
           </div>
         </div>
 
         <div class="card p-4 rounded-lg">
-          <h3 class="text-lg font-semibold mb-2">Существующие трейдеры</h3>
+          <h3 class="text-lg font-semibold mb-2">Трейдеры</h3>
           <div class="overflow-x-auto">
             <table class="w-full">
               <thead class="table-header">
                 <tr>
                   <th class="p-2 small-muted">Цвет</th>
                   <th class="p-2 small-muted">Логин</th>
-                  <th class="p-2 small-muted">Пароль</th>
                   <th class="p-2 small-muted">ФИО</th>
                   <th class="p-2 small-muted">Депозит</th>
                   <th class="p-2 small-muted">Просадка</th>
@@ -227,140 +234,223 @@
   </div>
 
 <script>
-/* =========================
-   Storage keys & defaults
-   ========================= */
-const LS_USERS = 'lite_invest_users_v2';
-const LS_TRADERS = 'lite_invest_traders_v2';
-const LS_REPORTS = 'lite_invest_reports_v2';
+// Firebase конфиг
+const firebaseConfig = {
+  apiKey: "AIzaSyBy81thxJtPxYBKWWXTvc6esV0ZotophU8",
+  authDomain: "lite-invest-chelyabinsk.firebaseapp.com",
+  projectId: "lite-invest-chelyabinsk",
+  storageBucket: "lite-invest-chelyabinsk.firebasestorage.app",
+  messagingSenderId: "196281360483",
+  appId: "1:196281360483:web:b889c55fb64ac2f12c9856"
+};
 
-/* Google Apps Script URL - ВАШ URL */
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx0Uhv2DRbWgZgCFk2mjSca9PRg9ZnxNByUYXF2c4QC9e6ZBxRihEWKu9VszQGAeo6X/exec";
+// Инициализация Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
 
-/* Hidden admin credentials (not shown in UI) */
-const HIDDEN_ADMIN = { username:'admin', password:'olimpiada2022', role:'admin', name:'Админ' };
+// Коллекции
+const USERS_COLLECTION = 'users';
+const TRADERS_COLLECTION = 'traders';
+const REPORTS_COLLECTION = 'reports';
 
-/* In-memory storage */
+// Глобальные переменные
 let users = [];
-let traders = []; // { username,name,deposit,drawdown,color,equity[],dailyDraw[],emotion[],discipline[] }
-let reports = []; // { id, dateISO, username, name, result, drawdown, emotion, discipline }
+let traders = [];
+let reports = [];
 let current = null;
 let mainChart = null, miniChart = null;
 
-/* Helpers */
+// Хелперы
 const el = id => document.getElementById(id);
-function saveAll(){ localStorage.setItem(LS_USERS, JSON.stringify(users)); localStorage.setItem(LS_TRADERS, JSON.stringify(traders)); localStorage.setItem(LS_REPORTS, JSON.stringify(reports)); }
-function loadAll(){
-  users = JSON.parse(localStorage.getItem(LS_USERS) || 'null') || null;
-  traders = JSON.parse(localStorage.getItem(LS_TRADERS) || 'null') || null;
-  reports = JSON.parse(localStorage.getItem(LS_REPORTS) || 'null') || null;
-  if(!users || !Array.isArray(users)) users = [ {...HIDDEN_ADMIN} ];
-  if(!traders || !Array.isArray(traders)) traders = [];
-  if(!reports || !Array.isArray(reports)) reports = [];
-}
-function toast(msg){ alert(msg); }
-function uid(){ return Math.random().toString(36).slice(2,9); }
-function randomColorHsl(){ const h = Math.floor(Math.random()*360); return `hsl(${h},70%,55%)`; }
-function genColorFromUsername(u){ let h=0; for(let i=0;i<u.length;i++) h = u.charCodeAt(i) + ((h<<5)-h); return `hsl(${Math.abs(h)%360},70%,55%)`; }
-function hslToHexFromCss(css){
-  if(!css) return '#3b82f6';
-  if(css.startsWith('#')) return css;
-  const m = css.match(/hsl\((\d+)[ ,]+(\d+)%[ ,]+(\d+)%\)/);
-  if(!m) return '#3b82f6';
-  const h = Number(m[1]), s = Number(m[2])/100, l = Number(m[3])/100;
-  const a = s * Math.min(l,1-l);
-  const f = n => {
-    const k = (n + h/30) % 12;
-    const color = l - a * Math.max(Math.min(k-3,9-k,1), -1);
-    return Math.round(255*color).toString(16).padStart(2,'0');
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
+function toast(msg) { alert(msg); }
+function uid() { return Math.random().toString(36).slice(2,9); }
+function randomColorHsl() { const h = Math.floor(Math.random()*360); return `hsl(${h},70%,55%)`; }
+function genColorFromUsername(u) { let h=0; for(let i=0;i<u.length;i++) h = u.charCodeAt(i) + ((h<<5)-h); return `hsl(${Math.abs(h)%360},70%,55%)`; }
+function showError(id, txt) { const elErr = document.getElementById(id); if(elErr){ elErr.textContent = txt; elErr.classList.remove('hidden'); } }
+function hideError(id) { const elErr = document.getElementById(id); if(elErr) elErr.classList.add('hidden'); }
 
-/* Функция сохранения в Google Sheets */
-async function saveToGoogleSheets(reportData) {
+// Загрузка данных
+async function loadAll() {
   try {
-    const data = {
-      name: reportData.name,
-      result: reportData.result,
-      drawdown: reportData.drawdown,
-      emotion: reportData.emotion,
-      discipline: reportData.discipline,
-      date: reportData.dateISO,
-      username: reportData.username
-    };
-
-    const response = await fetch(GOOGLE_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-
-    const result = await response.json();
-    return result.status === 'ok';
+    // Загружаем пользователей
+    const usersSnapshot = await db.collection(USERS_COLLECTION).get();
+    users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Загружаем трейдеров
+    const tradersSnapshot = await db.collection(TRADERS_COLLECTION).get();
+    traders = tradersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Загружаем отчеты
+    const reportsSnapshot = await db.collection(REPORTS_COLLECTION).get();
+    reports = reportsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    // Создаем админа если нет пользователей
+    if (users.length === 0) {
+      await createDefaultAdmin();
+      await createDefaultTrader();
+    }
+    
+    recomputeAllSeries();
+    
   } catch (error) {
-    console.error('Ошибка сохранения в Google Sheets:', error);
-    return false;
+    console.error('Ошибка загрузки:', error);
   }
 }
 
-/* Load */
-loadAll();
-
-/* Ensure traders exist for users (clean version: no extra traders unless admin created) */
-function ensureTradersFromUsers(){
-  users.filter(u=>u.role==='trader').forEach(u=>{
-    if(!traders.some(t=>t.username===u.username)){
-      traders.push({ username:u.username, name:u.name, deposit:500, drawdown:50, color: genColorFromUsername(u.username), equity:[500], dailyDraw:[], emotion:[], discipline:[] });
-    }
-  });
+// Создание админа
+async function createDefaultAdmin() {
+  const adminData = {
+    email: 'admin@liteinvest.ru',
+    password: 'admin123',
+    role: 'admin',
+    name: 'Администратор',
+    username: 'admin',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  await db.collection(USERS_COLLECTION).add(adminData);
 }
-ensureTradersFromUsers();
-recomputeAllSeries();
-saveAll();
 
-/* ================= AUTH ================= */
-el('loginBtn').addEventListener('click', ()=>{
-  const u = el('loginUsername').value.trim();
-  const p = el('loginPassword').value;
-  const user = users.find(x=>x.username===u && x.password===p);
-  if(!user){ el('loginError').textContent='Неверный логин или пароль'; el('loginError').classList.remove('hidden'); return; }
-  el('loginError').classList.add('hidden');
-  current = {...user};
-  enterApp();
+// Создание трейдера
+async function createDefaultTrader() {
+  const traderData = {
+    username: 'demo',
+    name: 'Демо Трейдер',
+    deposit: 500,
+    drawdown: 50,
+    color: randomColorHsl(),
+    equity: [500],
+    dailyDraw: [],
+    emotion: [],
+    discipline: [],
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  await db.collection(TRADERS_COLLECTION).add(traderData);
+}
+
+// Авторизация
+el('loginBtn').addEventListener('click', async () => {
+  const username = el('loginUsername').value.trim();
+  const password = el('loginPassword').value;
+  const email = username + '@liteinvest.ru';
+  
+  if (!username || !password) {
+    showError('loginError', 'Заполните все поля');
+    return;
+  }
+  
+  try {
+    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+    const user = userCredential.user;
+    
+    const userSnapshot = await db.collection(USERS_COLLECTION).where('email', '==', email).get();
+    if (userSnapshot.empty) {
+      showError('loginError', 'Пользователь не найден');
+      return;
+    }
+    
+    const userData = userSnapshot.docs[0].data();
+    current = { id: userSnapshot.docs[0].id, uid: user.uid, ...userData };
+    enterApp();
+    
+  } catch (error) {
+    showError('loginError', 'Ошибка входа: ' + error.message);
+  }
 });
 
-function enterApp(){
+// Регистрация
+el('registerBtn').addEventListener('click', async () => {
+  const username = el('loginUsername').value.trim();
+  const password = el('loginPassword').value;
+  const email = username + '@liteinvest.ru';
+  
+  if (!username || !password) {
+    showError('loginError', 'Заполните все поля');
+    return;
+  }
+  
+  if (password.length < 6) {
+    showError('loginError', 'Пароль минимум 6 символов');
+    return;
+  }
+  
+  try {
+    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+    const user = userCredential.user;
+    
+    const userData = {
+      email: email,
+      password: password,
+      role: 'trader',
+      name: username,
+      username: username,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection(USERS_COLLECTION).add(userData);
+    
+    const traderData = {
+      username: username,
+      name: username,
+      deposit: 500,
+      drawdown: 50,
+      color: genColorFromUsername(username),
+      equity: [500],
+      dailyDraw: [],
+      emotion: [],
+      discipline: [],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection(TRADERS_COLLECTION).add(traderData);
+    
+    toast('Регистрация успешна! Войдите.');
+    el('loginUsername').value = '';
+    el('loginPassword').value = '';
+    
+  } catch (error) {
+    showError('loginError', 'Ошибка регистрации: ' + error.message);
+  }
+});
+
+// Вход в приложение
+function enterApp() {
   el('entryPanel').classList.add('hidden');
   el('app').classList.remove('hidden');
-  el('userBox').innerHTML = `<div class="text-sm small-muted">Вошёл как <strong>${current.name}</strong> (${current.username})</div>`;
-  if(current.role==='admin') el('adminTabBtn').classList.remove('hidden'); else el('adminTabBtn').classList.add('hidden');
+  el('userBox').innerHTML = `<div class="text-sm small-muted">Вошёл как <strong>${current.name}</strong> (${current.role})</div>`;
+  
+  if (current.role === 'admin') {
+    el('adminTabBtn').classList.remove('hidden');
+  } else {
+    el('adminTabBtn').classList.add('hidden');
+  }
+  
   el('repDate').valueAsDate = new Date();
   populateReportTraderSelect();
   renderAll();
 }
 
-/* Logout */
-el('logoutBtn').addEventListener('click', ()=>{
+// Выход
+el('logoutBtn').addEventListener('click', () => {
+  auth.signOut();
   current = null;
   el('entryPanel').classList.remove('hidden');
   el('app').classList.add('hidden');
   el('userBox').innerHTML = '';
-  el('loginUsername').value=''; el('loginPassword').value='';
+  el('loginUsername').value = '';
+  el('loginPassword').value = '';
 });
 
-/* ========== SERIES: recompute from reports (equity starts with deposit) ========== */
-function recomputeAllSeries(){
-  traders.forEach(tr=>{
-    const r = reports.filter(rr=>rr.username===tr.username).slice().sort((a,b)=> new Date(a.dateISO) - new Date(b.dateISO));
+// Пересчет серий
+function recomputeAllSeries() {
+  traders.forEach(tr => {
+    const r = reports.filter(rr => rr.username === tr.username).sort((a, b) => new Date(a.dateISO) - new Date(b.dateISO));
     tr.equity = [];
     tr.dailyDraw = [];
     tr.emotion = [];
     tr.discipline = [];
     let accum = Number(tr.deposit) || 500;
-    tr.equity.push(+accum.toFixed(2)); // initial deposit point
-    r.forEach(rep=>{
-      accum += Number(rep.result||0);
+    tr.equity.push(+accum.toFixed(2));
+    r.forEach(rep => {
+      accum += Number(rep.result || 0);
       tr.equity.push(+accum.toFixed(2));
       tr.dailyDraw.push(+rep.drawdown);
       tr.emotion.push(+rep.emotion);
@@ -369,8 +459,101 @@ function recomputeAllSeries(){
   });
 }
 
-/* ================= RENDER / UI ================= */
-function renderAll(){
+// Добавление отчета
+el('addReport').addEventListener('click', async () => {
+  const dateVal = el('repDate').value;
+  if (!dateVal) { showError('reportError', 'Выберите дату'); return; }
+  
+  let username = el('repTrader').value;
+  if (current.role === 'trader') username = current.username;
+  
+  const t = traders.find(tt => tt.username === username);
+  if (!t) { showError('reportError', 'Трейдер не найден'); return; }
+  
+  const res = parseFloat(el('repResult').value);
+  const draw = parseFloat(el('repDraw').value);
+  const emo = parseInt(el('repEmotion').value);
+  const disc = parseInt(el('repDiscipline').value);
+  
+  if (Number.isNaN(res) || Number.isNaN(draw) || Number.isNaN(emo) || Number.isNaN(disc)) {
+    showError('reportError', 'Заполните все поля');
+    return;
+  }
+  
+  const dateISO = new Date(dateVal + 'T00:00:00').toISOString();
+  const id = uid();
+  
+  const reportData = {
+    id, dateISO, username: t.username, name: t.name, result: res, drawdown: draw, emotion: emo, discipline: disc,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+  
+  try {
+    await db.collection(REPORTS_COLLECTION).add(reportData);
+    reports.push(reportData);
+    recomputeAllSeries();
+    
+    el('repResult').value = ''; el('repDraw').value = ''; el('repEmotion').value = ''; el('repDiscipline').value = '';
+    hideError('reportError');
+    renderReportsList(el('reportFilter').value);
+    renderLeaderboard(); renderMainChart(); updateQuickStats(); renderMiniChart(t.username);
+    toast('Отчет сохранен!');
+    
+  } catch (error) {
+    toast('Ошибка сохранения');
+  }
+});
+
+// Удаление отчета
+async function deleteReport(reportId) {
+  if (!confirm('Удалить отчёт?')) return;
+  try {
+    const reportDoc = await db.collection(REPORTS_COLLECTION).where('id', '==', reportId).get();
+    if (!reportDoc.empty) await reportDoc.docs[0].ref.delete();
+    reports = reports.filter(rr => rr.id !== reportId);
+    recomputeAllSeries();
+    renderReportsList(el('reportFilter').value);
+    renderLeaderboard(); renderMainChart(); updateQuickStats();
+  } catch (error) {
+    toast('Ошибка удаления');
+  }
+}
+
+// Создание трейдера
+el('adminCreateTrader').addEventListener('click', async () => {
+  if (!(current && current.role === 'admin')) { toast('Только админ'); return; }
+  
+  const login = el('adminNewLogin').value.trim();
+  const pass = el('adminNewPass').value;
+  const name = el('adminNewName').value.trim() || login;
+  const deposit = Number(el('adminNewDeposit').value) || 500;
+  const draw = Number(el('adminNewDraw').value) || 50;
+  
+  if (!login || !pass) { toast('Заполните логин и пароль'); return; }
+  if (users.find(u => u.username === login)) { toast('Логин занят'); return; }
+  
+  try {
+    const email = login + '@liteinvest.ru';
+    await auth.createUserWithEmailAndPassword(email, pass);
+    
+    const userData = { email, password: pass, role: 'trader', name, username: login, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+    await db.collection(USERS_COLLECTION).add(userData);
+    
+    const traderData = { username: login, name, deposit, drawdown: draw, color: randomColorHsl(), equity: [deposit], dailyDraw: [], emotion: [], discipline: [], createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+    await db.collection(TRADERS_COLLECTION).add(traderData);
+    
+    await loadAll();
+    renderAll();
+    el('adminNewLogin').value = ''; el('adminNewPass').value = ''; el('adminNewName').value = '';
+    toast('Трейдер создан!');
+    
+  } catch (error) {
+    toast('Ошибка: ' + error.message);
+  }
+});
+
+// Рендер интерфейса
+function renderAll() {
   renderAdminList();
   renderLeaderboard();
   renderReportsList();
@@ -382,33 +565,21 @@ function renderAll(){
   populateReportTraderSelect();
 }
 
-/* Quick stats */
-function updateQuickStats(){
-  const total = traders.length;
-  const totalReports = reports.length;
-  const sums = traders.map(t=>({ name:t.name, sum: reports.filter(r=>r.username===t.username).reduce((a,b)=>a+(b.result||0),0)})).sort((a,b)=>b.sum-a.sum);
-  const top = sums[0] || {name:'—',sum:0};
-  el('quickStats').innerHTML = `<div class="mb-2 small-muted">Участников: <strong>${total}</strong></div>
-    <div class="small-muted">Отчётов: <strong>${totalReports}</strong></div>
-    <div class="small-muted">Лидер: <strong>${top.name}</strong> (${top.sum.toFixed(2)} ₽)</div>`;
-}
-
-/* Leaderboard */
-function renderLeaderboard(){
+function renderLeaderboard() {
   const tbody = el('leaderboardBody');
-  const stats = traders.map(tr=>{
-    const capital = tr.equity && tr.equity.length ? tr.equity[tr.equity.length-1] : tr.deposit;
-    const growth = (((capital - tr.deposit)/tr.deposit) * 100).toFixed(2);
+  const stats = traders.map(tr => {
+    const capital = tr.equity && tr.equity.length ? tr.equity[tr.equity.length - 1] : tr.deposit;
+    const growth = (((capital - tr.deposit) / tr.deposit) * 100).toFixed(2);
     return { username: tr.username, name: tr.name, color: tr.color, capital, growth };
-  }).sort((a,b)=>b.capital - a.capital);
+  }).sort((a, b) => b.capital - a.capital);
 
   tbody.innerHTML = '';
-  stats.forEach((s, idx)=>{
+  stats.forEach((s, idx) => {
     const isCurrent = current && current.username === s.username;
     const row = document.createElement('tr');
-    row.className = `border-b border-white/5 ${isCurrent? 'highlight-row' : ''}`;
+    row.className = `border-b border-white/5 ${isCurrent ? 'highlight-row' : ''}`;
     row.innerHTML = `
-      <td class="p-3 align-middle">${idx+1}</td>
+      <td class="p-3 align-middle">${idx + 1}</td>
       <td class="p-3 align-middle flex items-center gap-3">
         <div class="color-dot" style="background:${s.color}"></div>
         <div>
@@ -419,249 +590,143 @@ function renderLeaderboard(){
       <td class="p-3 font-semibold align-middle">${Number(s.capital).toFixed(2)} ₽</td>
       <td class="p-3 align-middle ${Number(s.growth) >= 0 ? 'positive' : 'negative'}">${s.growth}%</td>
     `;
-    row.addEventListener('click', ()=> renderMiniChart(s.username));
+    row.addEventListener('click', () => renderMiniChart(s.username));
     tbody.appendChild(row);
   });
 }
 
-/* Reports list with edit/delete actions (admin can edit/delete; trader can only delete own?) */
-function renderReportsList(filterUsername){
+function renderReportsList(filterUsername) {
   const tbody = el('reportsList');
-  const sorted = reports.slice().sort((a,b)=> new Date(b.dateISO) - new Date(a.dateISO));
+  const sorted = reports.slice().sort((a, b) => new Date(b.dateISO) - new Date(a.dateISO));
   tbody.innerHTML = '';
-  sorted.filter(r=> !filterUsername || filterUsername==='all' ? true : r.username === filterUsername).forEach(r=>{
+  
+  sorted.filter(r => !filterUsername || filterUsername === 'all' ? true : r.username === filterUsername).forEach(r => {
     const tr = document.createElement('tr');
     tr.className = (r.result >= 0) ? 'positive border-b border-white/5' : 'negative border-b border-white/5';
-    tr.innerHTML = `<td class="p-2">${new Date(r.dateISO).toLocaleDateString()}</td><td class="p-2">${r.name}</td><td class="p-2">${(r.result>=0?'+':'') + Number(r.result).toFixed(2)} ₽</td><td class="p-2">${Number(r.drawdown).toFixed(2)} ₽</td><td class="p-2">${r.emotion}</td><td class="p-2">${r.discipline}</td>
+    tr.innerHTML = `
+      <td class="p-2">${new Date(r.dateISO).toLocaleDateString()}</td>
+      <td class="p-2">${r.name}</td>
+      <td class="p-2">${(r.result >= 0 ? '+' : '') + Number(r.result).toFixed(2)} ₽</td>
+      <td class="p-2">${Number(r.drawdown).toFixed(2)} ₽</td>
+      <td class="p-2">${r.emotion}</td>
+      <td class="p-2">${r.discipline}</td>
       <td class="p-2">
-        ${ (current && current.role==='admin') ? `<button data-id="${r.id}" class="edit-report px-2 py-1 rounded btn-soft mr-2">Редактировать</button><button data-id="${r.id}" class="delete-report px-2 py-1 rounded btn-danger">Удалить</button>` :
-          (current && current.role==='trader' && current.username===r.username ? `<button data-id="${r.id}" class="delete-report px-2 py-1 rounded btn-danger">Удалить</button>` : '') }
-      </td>`;
+        ${(current && current.role === 'admin') || (current && current.role === 'trader' && current.username === r.username) 
+          ? `<button data-id="${r.id}" class="delete-report px-2 py-1 rounded btn-soft">Удалить</button>` 
+          : ''}
+      </td>
+    `;
+    
+    const deleteBtn = tr.querySelector('.delete-report');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', (e) => {
+        deleteReport(e.target.dataset.id);
+      });
+    }
+    
     tbody.appendChild(tr);
   });
+}
 
-  // attach handlers
-  tbody.querySelectorAll('.delete-report').forEach(btn=>{
-    btn.addEventListener('click', (e)=>{
-      const id = e.target.dataset.id;
-      if(!confirm('Удалить отчёт?')) return;
-      reports = reports.filter(rr=>rr.id !== id);
-      recomputeAllSeries();
-      saveAll();
-      renderReportsList(el('reportFilter').value);
-      renderLeaderboard(); renderMainChart(); updateQuickStats();
-    });
+function renderAdminList() {
+  const tbody = el('adminTraderList');
+  tbody.innerHTML = '';
+  traders.forEach(t => {
+    const trEl = document.createElement('tr');
+    trEl.innerHTML = `
+      <td class="p-2"><span class="color-dot" style="background:${t.color}"></span></td>
+      <td class="p-2">${t.username}</td>
+      <td class="p-2">${t.name}</td>
+      <td class="p-2">${t.deposit}</td>
+      <td class="p-2">${t.drawdown}</td>
+      <td class="p-2"><button class="px-2 py-1 rounded btn-soft" data-user="${t.username}">Удалить</button></td>
+    `;
+    tbody.appendChild(trEl);
   });
-  tbody.querySelectorAll('.edit-report').forEach(btn=>{
-    btn.addEventListener('click', (e)=>{
-      const id = e.target.dataset.id;
-      const rep = reports.find(rr=>rr.id===id);
-      if(!rep) return;
-      // prompt fields (date, result, draw, emotion, discipline, trader only admin can change trader)
-      const newDate = prompt('Дата (YYYY-MM-DD):', rep.dateISO.slice(0,10));
-      if(!newDate) return;
-      const newResult = parseFloat(prompt('Результат (₽):', rep.result));
-      const newDraw = parseFloat(prompt('Дневная просадка (₽):', rep.drawdown));
-      const newEmotion = parseInt(prompt('Эмоции 1-10:', rep.emotion));
-      const newDiscipline = parseInt(prompt('Дисциплина 1-10:', rep.discipline));
-      if(Number.isNaN(newResult) || Number.isNaN(newDraw) || Number.isNaN(newEmotion) || Number.isNaN(newDiscipline)){ toast('Некорректные значения. Отмена.'); return; }
-      rep.dateISO = new Date(newDate + 'T00:00:00').toISOString();
-      rep.result = newResult; rep.drawdown = newDraw; rep.emotion = newEmotion; rep.discipline = newDiscipline;
-      recomputeAllSeries(); saveAll();
-      renderReportsList(el('reportFilter').value); renderLeaderboard(); renderMainChart(); updateQuickStats(); renderMiniChart(rep.username);
+
+  tbody.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const username = e.target.dataset.user;
+      if (!confirm('Удалить трейдера?')) return;
+      try {
+        const traderDoc = await db.collection(TRADERS_COLLECTION).where('username', '==', username).get();
+        if (!traderDoc.empty) await traderDoc.docs[0].ref.delete();
+        
+        const userDoc = await db.collection(USERS_COLLECTION).where('username', '==', username).get();
+        if (!userDoc.empty) await userDoc.docs[0].ref.delete();
+        
+        const reportsDocs = await db.collection(REPORTS_COLLECTION).where('username', '==', username).get();
+        reportsDocs.forEach(async doc => await doc.ref.delete());
+        
+        await loadAll();
+        renderAll();
+        toast('Трейдер удален!');
+      } catch (error) {
+        toast('Ошибка удаления');
+      }
     });
   });
 }
 
-/* Report trader select (admin sees all, trader locked to themselves) */
-function populateReportTraderSelect(){
-  const sel = el('repTrader'); sel.innerHTML = '';
-  traders.forEach(t=>{ const opt = document.createElement('option'); opt.value = t.username; opt.textContent = `${t.name} (${t.username})`; sel.appendChild(opt); });
-  if(current && current.role === 'trader'){ sel.value = current.username; sel.disabled = true; } else sel.disabled = false;
-}
-
-/* Add report (admin can choose trader; trader allowed only for self) */
-el('addReport').addEventListener('click', async ()=>{
-  const dateVal = el('repDate').value;
-  if(!dateVal){ showError('reportError','Выберите дату'); return; }
-  let username = el('repTrader').value;
-  if(current.role === 'trader') username = current.username;
-  const t = traders.find(tt=>tt.username === username);
-  if(!t){ showError('reportError','Трейдер не найден'); return; }
-  const res = parseFloat(el('repResult').value);
-  const draw = parseFloat(el('repDraw').value);
-  const emo = parseInt(el('repEmotion').value);
-  const disc = parseInt(el('repDiscipline').value);
-  if(Number.isNaN(res) || Number.isNaN(draw) || Number.isNaN(emo) || Number.isNaN(disc)){ showError('reportError','Заполните все поля корректно'); return; }
-  const dateISO = new Date(dateVal + 'T00:00:00').toISOString();
-  const id = uid();
+function updateQuickStats() {
+  const total = traders.length;
+  const totalReports = reports.length;
+  const sums = traders.map(t => ({ name: t.name, sum: reports.filter(r => r.username === t.username).reduce((a, b) => a + (b.result || 0), 0) })).sort((a, b) => b.sum - a.sum);
+  const top = sums[0] || { name: '—', sum: 0 };
   
-  const reportData = { id, dateISO, username: t.username, name: t.name, result: res, drawdown: draw, emotion: emo, discipline: disc };
-  reports.push(reportData);
+  el('quickStats').innerHTML = `
+    <div class="mb-2 small-muted">Участников: <strong>${total}</strong></div>
+    <div class="small-muted">Отчётов: <strong>${totalReports}</strong></div>
+    <div class="small-muted">Лидер: <strong>${top.name}</strong> (${top.sum.toFixed(2)} ₽)</div>
+  `;
   
-  // Сохраняем в Google Таблицы
-  try {
-    const savedToGoogle = await saveToGoogleSheets(reportData);
-    if (!savedToGoogle) {
-      console.warn('Данные не были отправлены в Google Таблицы');
+  if (current) {
+    const userTrader = traders.find(t => t.username === current.username);
+    if (userTrader) {
+      const capital = userTrader.equity && userTrader.equity.length ? userTrader.equity[userTrader.equity.length - 1] : userTrader.deposit;
+      el('accountHighlight').innerHTML = `
+        <strong>${current.name}</strong><br>
+        Капитал: <strong>${Number(capital).toFixed(2)} ₽</strong><br>
+        Отчётов: <strong>${reports.filter(r => r.username === current.username).length}</strong>
+      `;
     }
-  } catch (error) {
-    console.error('Ошибка при отправке в Google Sheets:', error);
   }
-  
-  recomputeAllSeries();
-  saveAll();
-  el('repResult').value=''; el('repDraw').value=''; el('repEmotion').value=''; el('repDiscipline').value='';
-  hideError('reportError');
-  renderReportsList(el('reportFilter').value);
-  renderLeaderboard(); renderMainChart(); updateQuickStats(); renderMiniChart(t.username);
-});
+}
 
-/* Error helpers */
-function showError(id, txt){ const elErr = document.getElementById(id); if(elErr){ elErr.textContent = txt; elErr.classList.remove('hidden'); } }
-function hideError(id){ const elErr = document.getElementById(id); if(elErr) elErr.classList.add('hidden'); }
-
-/* Charts: trader checkboxes & main chart (by dates) */
-function renderTraderCheckboxes(){
-  const container = el('chartTraderCheckboxes'); container.innerHTML = '';
-  traders.forEach((t)=> {
-    const lbl = document.createElement('label'); lbl.className = 'inline-flex items-center gap-2 p-2 rounded cursor-pointer';
-    lbl.innerHTML = `<input type="checkbox" class="chart-trader-checkbox" data-username="${t.username}" checked /> <span style="display:inline-flex;align-items:center"><span class="color-dot" style="background:${t.color};margin-right:8px"></span><span style="font-weight:600">${t.name}</span></span>`;
-    container.appendChild(lbl);
+function populateReportTraderSelect() {
+  const sel = el('repTrader'); 
+  sel.innerHTML = '';
+  traders.forEach(t => { 
+    const opt = document.createElement('option'); 
+    opt.value = t.username; 
+    opt.textContent = `${t.name} (${t.username})`; 
+    sel.appendChild(opt); 
   });
-}
-
-/* Build unified sorted date labels from reports */
-function getAllDatesSorted(){
-  const set = new Set();
-  reports.forEach(r=> set.add(new Date(r.dateISO).toISOString().slice(0,10)));
-  // also include today? not needed; just sorted unique dates
-  const arr = Array.from(set).sort((a,b)=> new Date(a) - new Date(b));
-  return arr;
-}
-
-/* For each trader create series aligned to allDates: equity starts with deposit, then cumulative on each date (if multiple reports same date sum them) */
-function buildSeriesForMetric(metric, allDates, username){
-  const tr = traders.find(t=>t.username===username);
-  if(!tr) return allDates.map(_=>null);
-  if(metric === 'equity'){
-    // start from deposit and for each date sum results up to and including that date
-    const out = [];
-    // for each date compute sum of reports for that trader on or before date
-    let acc = tr.deposit || 500;
-    // push initial point at first date must equal deposit? requirement: first point = deposit. We'll map first label to deposit + sum up to that date.
-    // We'll compute cumulative per date by summing results on that date and keep running acc.
-    // But we must ensure the first plotted value equals deposit + sum of results up to first date. To keep initial deposit as starting point on same date,
-    // we will compute accStart = deposit, then for each date compute acc += sum(results on that date) and push acc.
-    // That makes first point = deposit + sumOnFirstDate. To match "start is deposit", we will also display a synthetic "start" label? However earlier requested axis by dates; user wanted starting point deposit.
-    // Alternative: include an initial label equal to (firstDate - 1 day) labeled "Старт". But user wants dates axis. To satisfy both: we will include the deposit as the first point at the earliest date but adjust so that if trader has first report on that date, the first point remains deposit (and the result applies to next point).
-    // Implementation: compute per-date sum but push deposit at first label, then for subsequent dates add sums.
-    const sumsByDate = {};
-    reports.filter(r=>r.username===username).forEach(r=>{
-      const d = new Date(r.dateISO).toISOString().slice(0,10);
-      sumsByDate[d] = (sumsByDate[d]||0) + Number(r.result||0);
-    });
-    // first label: deposit
-    if(allDates.length===0) return [tr.deposit];
-    // We'll create series length = allDates.length + 1 (prepend 'Старт' label) to guarantee deposit as first point.
-    // But mainChart uses labels created here; we'll modify renderMainChart to allow 'Старт' label at index 0.
-    // So just compute values: [deposit, deposit+sum(firstDate), deposit+sum(firstDate)+sum(secondDate), ...]
-    let running = tr.deposit || 500;
-    out.push(+running.toFixed(2));
-    for(let i=0;i<allDates.length;i++){
-      const d = allDates[i];
-      const s = sumsByDate[d] || 0;
-      running += s;
-      out.push(+running.toFixed(2));
-    }
-    return out;
-  } else if(metric === 'drawdown'){
-    // we will also include initial 0 at start, then per date show drawdown (if multiple reports same day take max)
-    const ddByDate = {};
-    reports.filter(r=>r.username===username).forEach(r=>{
-      const d = new Date(r.dateISO).toISOString().slice(0,10);
-      ddByDate[d] = Math.max(ddByDate[d]||0, Number(r.drawdown||0));
-    });
-    const out = [0];
-    for(let i=0;i<allDates.length;i++){ const d=allDates[i]; out.push(ddByDate[d] || 0); }
-    return out;
-  } else if(metric === 'emotion'){
-    const emByDate = {};
-    // if multiple reports same day average
-    const countByDate = {};
-    reports.filter(r=>r.username===username).forEach(r=>{
-      const d = new Date(r.dateISO).toISOString().slice(0,10);
-      emByDate[d] = (emByDate[d] || 0) + Number(r.emotion||0);
-      countByDate[d] = (countByDate[d]||0) + 1;
-    });
-    const out = [null];
-    for(let i=0;i<allDates.length;i++){ const d=allDates[i]; out.push(countByDate[d]? +(emByDate[d]/countByDate[d]).toFixed(2) : null); }
-    return out;
-  } else if(metric === 'discipline'){
-    const diByDate = {};
-    const countByDate = {};
-    reports.filter(r=>r.username===username).forEach(r=>{
-      const d = new Date(r.dateISO).toISOString().slice(0,10);
-      diByDate[d] = (diByDate[d] || 0) + Number(r.discipline||0);
-      countByDate[d] = (countByDate[d]||0) + 1;
-    });
-    const out = [null];
-    for(let i=0;i<allDates.length;i++){ const d=allDates[i]; out.push(countByDate[d]? +(diByDate[d]/countByDate[d]).toFixed(2) : null); }
-    return out;
+  if (current && current.role === 'trader') { 
+    sel.value = current.username; 
+    sel.disabled = true; 
+  } else { 
+    sel.disabled = false; 
   }
-  return [];
 }
 
-/* Render mainChart using date labels with an initial 'Старт' label to show deposit */
-function renderMainChart(){
-  const ctx = el('mainChart').getContext('2d');
-  if(mainChart) mainChart.destroy();
-  const metric = el('chartSelectType').value;
-  const checked = Array.from(document.querySelectorAll('.chart-trader-checkbox:checked')).map(i=>i.dataset.username);
-  // allDates are unique sorted report dates
-  const allDates = getAllDatesSorted();
-  // labels: ['Старт', ...dates]
-  const labels = ['Старт', ...allDates.map(d=> (new Date(d + 'T00:00:00')).toLocaleDateString() )];
-  // build datasets
-  const datasets = checked.map(username=>{
-    const tr = traders.find(t=>t.username===username);
-    if(!tr) return null;
-    const series = buildSeriesForMetric(metric, allDates, username);
-    // convert series length may be allDates.length+1
-    const col = tr.color || randomColorHsl();
-    const bg = col.startsWith('#') ? col + '22' : col.replace('hsl','hsla').replace(')',',0.12)');
-    return { label: tr.name, data: series, borderColor: col, backgroundColor: bg, tension:0.25, borderWidth:2, pointRadius:3, fill: metric==='equity' };
-  }).filter(Boolean);
-
-  mainChart = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels:{ color:'#e6eef8' } }, tooltip:{ mode:'index', intersect:false } },
-      scales: { x: { ticks:{ color:'#9fb0c8' } }, y: { ticks:{ color:'#9fb0c8' } } }
-    }
-  });
+function updateReportFilter() { 
+  const sel = el('reportFilter'); 
+  const prev = sel.value || 'all'; 
+  sel.innerHTML = '<option value="all">Все</option>'; 
+  traders.forEach(t => { 
+    const o = document.createElement('option'); 
+    o.value = t.username; 
+    o.textContent = t.name + ' (' + t.username + ')'; 
+    sel.appendChild(o); 
+  }); 
+  sel.value = prev || 'all'; 
 }
 
-/* Mini chart: show single trader with labels same logic (prepend 'Старт') */
-function renderMiniChart(username){
-  const tr = traders.find(t=>t.username===username) || traders[0];
-  if(!tr) { if(miniChart) miniChart.destroy(); return; }
-  const ctx = el('miniChart').getContext('2d');
-  if(miniChart) miniChart.destroy();
-  const allDates = getAllDatesSorted();
-  const labels = ['Старт', ...allDates.map(d=> (new Date(d + 'T00:00:00')).toLocaleDateString() )];
-  const data = buildSeriesForMetric('equity', allDates, tr.username);
-  const col = tr.color || randomColorHsl();
-  const bg = col.startsWith('#') ? col + '22' : col.replace('hsl','hsla').replace(')',',0.12)');
-  miniChart = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label: tr.name, data, borderColor: col, backgroundColor: bg, fill:true, tension:0.25, borderWidth:2 }] }, options:{ responsive:true, plugins:{ legend:{ display:false } }, scales:{ x:{ ticks:{ color:'#9fb0c8' } }, y:{ ticks:{ color:'#9fb0c8' } } } } });
-}
-
-/* Render trader selection checkboxes for charts */
-function renderTraderCheckboxes(){
-  const container = el('chartTraderCheckboxes'); container.innerHTML = '';
-  traders.forEach(t=>{
+function renderTraderCheckboxes() {
+  const container = el('chartTraderCheckboxes'); 
+  container.innerHTML = '';
+  traders.forEach(t => {
     const label = document.createElement('label');
     label.className = 'inline-flex items-center gap-2 p-2 rounded cursor-pointer';
     label.innerHTML = `<input type="checkbox" checked class="chart-trader-checkbox" data-username="${t.username}" /> <span style="display:inline-flex;align-items:center"><span class="color-dot" style="background:${t.color};margin-right:8px"></span><span style="font-weight:600">${t.name}</span></span>`;
@@ -669,167 +734,232 @@ function renderTraderCheckboxes(){
   });
 }
 
-/* ========== ADMIN (traders) ========== */
-function renderAdminList(){
-  const tbody = el('adminTraderList');
-  tbody.innerHTML = '';
-  users.filter(u=>u.role==='trader').forEach(u=>{
-    let t = traders.find(tt=>tt.username===u.username);
-    if(!t){
-      t = { username:u.username, name:u.name, deposit:500, drawdown:50, color: genColorFromUsername(u.username), equity:[500], dailyDraw:[], emotion:[], discipline:[] };
-      traders.push(t);
+function getAllDatesSorted() {
+  const set = new Set();
+  reports.forEach(r => set.add(new Date(r.dateISO).toISOString().slice(0, 10)));
+  const arr = Array.from(set).sort((a, b) => new Date(a) - new Date(b));
+  return arr;
+}
+
+function buildSeriesForMetric(metric, allDates, username) {
+  const tr = traders.find(t => t.username === username);
+  if (!tr) return allDates.map(_ => null);
+  
+  if (metric === 'equity') {
+    const sumsByDate = {};
+    reports.filter(r => r.username === username).forEach(r => {
+      const d = new Date(r.dateISO).toISOString().slice(0, 10);
+      sumsByDate[d] = (sumsByDate[d] || 0) + Number(r.result || 0);
+    });
+    
+    const out = [];
+    let running = tr.deposit || 500;
+    out.push(+running.toFixed(2));
+    
+    for (let i = 0; i < allDates.length; i++) {
+      const d = allDates[i];
+      const s = sumsByDate[d] || 0;
+      running += s;
+      out.push(+running.toFixed(2));
     }
-    const colorHex = t.color && t.color.startsWith('#') ? t.color : hslToHexFromCss(t.color);
-    const trEl = document.createElement('tr');
-    trEl.innerHTML = `<td class="p-2"><span class="color-dot" id="dot-${u.username}" style="background:${t.color}"></span><input type="color" value="${colorHex}" data-user="${u.username}" data-type="color" /></td>
-      <td class="p-2"><input value="${u.username}" data-user="${u.username}" data-type="login" class="input-dark p-1" /></td>
-      <td class="p-2"><input value="${u.password}" data-user="${u.username}" data-type="password" class="input-dark p-1" /></td>
-      <td class="p-2"><input value="${u.name}" data-user="${u.username}" data-type="name" class="input-dark p-1" /></td>
-      <td class="p-2"><input value="${t.deposit||500}" data-user="${u.username}" data-type="deposit" class="input-dark p-1" /></td>
-      <td class="p-2"><input value="${t.drawdown||50}" data-user="${u.username}" data-type="draw" class="input-dark p-1" /></td>
-      <td class="p-2"><button class="px-2 py-1 rounded btn-soft" data-user="${u.username}">Удалить</button></td>`;
-    tbody.appendChild(trEl);
-  });
-
-  // attach change handlers to inputs
-  tbody.querySelectorAll('input').forEach(inp=>{
-    inp.addEventListener('change', (e)=>{
-      const oldUser = e.target.dataset.user;
-      const type = e.target.dataset.type;
-      const val = e.target.value;
-      const user = users.find(u=>u.username===oldUser);
-      if(!user) return;
-      if(type === 'login'){
-        const newLogin = val.trim();
-        if(!newLogin){ toast('Логин не может быть пустым'); e.target.value = user.username; return; }
-        if(users.some(u=>u.username === newLogin && u !== user)){ toast('Логин занят'); e.target.value = user.username; return; }
-        // update references in reports and traders
-        reports.forEach(r=>{ if(r.username === user.username) r.username = newLogin; });
-        const t = traders.find(tt=>tt.username === user.username);
-        if(t) t.username = newLogin;
-        user.username = newLogin;
-        saveAll(); renderAll(); return;
-      } else if(type === 'password'){ user.password = val; }
-      else if(type === 'name'){ user.name = val; const t = traders.find(tt=>tt.username===user.username); if(t) t.name = val; }
-      else if(type === 'deposit'){ const v = Number(val) || 500; let t = traders.find(tt=>tt.username===user.username); if(!t){ t = { username:user.username, name:user.name, deposit:v, drawdown:50, color: genColorFromUsername(user.username), equity:[v], dailyDraw:[], emotion:[], discipline:[] }; traders.push(t); } else t.deposit = v; recomputeAllSeries(); }
-      else if(type === 'draw'){ const v = Number(val) || 50; let t = traders.find(tt=>tt.username===user.username); if(!t){ t = { username:user.username, name:user.name, deposit:500, drawdown:v, color: genColorFromUsername(user.username), equity:[500], dailyDraw:[], emotion:[], discipline:[] }; traders.push(t); } else t.drawdown = v; }
-      else if(type === 'color'){ const hex = val; const t = traders.find(tt=>tt.username===user.username); if(t){ t.color = hex; } const dot = document.getElementById('dot-'+user.username); if(dot) dot.style.background = hex; }
-      saveAll();
-      renderLeaderboard(); renderTraderCheckboxes(); renderMainChart(); renderReportsList(el('reportFilter').value); updateQuickStats();
+    return out;
+    
+  } else if (metric === 'drawdown') {
+    const ddByDate = {};
+    reports.filter(r => r.username === username).forEach(r => {
+      const d = new Date(r.dateISO).toISOString().slice(0, 10);
+      ddByDate[d] = Math.max(ddByDate[d] || 0, Number(r.drawdown || 0));
     });
-  });
-
-  // delete buttons
-  tbody.querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', (e)=>{
-      const username = e.target.dataset.user;
-      if(!confirm('Удалить трейдера и все его отчёты?')) return;
-      users = users.filter(u=>u.username !== username);
-      traders = traders.filter(t=>t.username !== username);
-      reports = reports.filter(r=>r.username !== username);
-      saveAll(); renderAll();
+    
+    const out = [0];
+    for (let i = 0; i < allDates.length; i++) {
+      const d = allDates[i];
+      out.push(ddByDate[d] || 0);
+    }
+    return out;
+    
+  } else if (metric === 'emotion') {
+    const emByDate = {};
+    const countByDate = {};
+    reports.filter(r => r.username === username).forEach(r => {
+      const d = new Date(r.dateISO).toISOString().slice(0, 10);
+      emByDate[d] = (emByDate[d] || 0) + Number(r.emotion || 0);
+      countByDate[d] = (countByDate[d] || 0) + 1;
     });
+    
+    const out = [null];
+    for (let i = 0; i < allDates.length; i++) {
+      const d = allDates[i];
+      out.push(countByDate[d] ? +(emByDate[d] / countByDate[d]).toFixed(2) : null);
+    }
+    return out;
+    
+  } else if (metric === 'discipline') {
+    const diByDate = {};
+    const countByDate = {};
+    reports.filter(r => r.username === username).forEach(r => {
+      const d = new Date(r.dateISO).toISOString().slice(0, 10);
+      diByDate[d] = (diByDate[d] || 0) + Number(r.discipline || 0);
+      countByDate[d] = (countByDate[d] || 0) + 1;
+    });
+    
+    const out = [null];
+    for (let i = 0; i < allDates.length; i++) {
+      const d = allDates[i];
+      out.push(countByDate[d] ? +(diByDate[d] / countByDate[d]).toFixed(2) : null);
+    }
+    return out;
+  }
+  return [];
+}
+
+function renderMainChart() {
+  const ctx = el('mainChart').getContext('2d');
+  if (mainChart) mainChart.destroy();
+  
+  const metric = el('chartSelectType').value;
+  const checked = Array.from(document.querySelectorAll('.chart-trader-checkbox:checked')).map(i => i.dataset.username);
+  const allDates = getAllDatesSorted();
+  const labels = ['Старт', ...allDates.map(d => (new Date(d + 'T00:00:00')).toLocaleDateString())];
+  
+  const datasets = checked.map(username => {
+    const tr = traders.find(t => t.username === username);
+    if (!tr) return null;
+    
+    const series = buildSeriesForMetric(metric, allDates, username);
+    const col = tr.color || randomColorHsl();
+    const bg = col.startsWith('#') ? col + '22' : col.replace('hsl', 'hsla').replace(')', ',0.12)');
+    
+    return {
+      label: tr.name,
+      data: series,
+      borderColor: col,
+      backgroundColor: bg,
+      tension: 0.25,
+      borderWidth: 2,
+      pointRadius: 3,
+      fill: metric === 'equity'
+    };
+  }).filter(Boolean);
+
+  mainChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#e6eef8' } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { ticks: { color: '#9fb0c8' } },
+        y: { ticks: { color: '#9fb0c8' } }
+      }
+    }
   });
 }
 
-/* Admin create trader */
-el('adminCreateTrader').addEventListener('click', ()=>{
-  if(!(current && current.role === 'admin')){ toast('Только админ'); return; }
-  const login = el('adminNewLogin').value.trim();
-  const pass = el('adminNewPass').value;
-  const name = el('adminNewName').value.trim() || login;
-  const deposit = Number(el('adminNewDeposit').value) || 500;
-  const draw = Number(el('adminNewDraw').value) || 50;
-  if(!login || !pass){ toast('Заполните логин и пароль'); return; }
-  if(users.some(u=>u.username===login)){ toast('Логин уже занят'); return; }
-  users.push({ username: login, password: pass, role:'trader', name });
-  const color = randomColorHsl();
-  traders.push({ username: login, name, deposit, drawdown: draw, color, equity:[deposit], dailyDraw:[], emotion:[], discipline:[] });
-  saveAll();
-  el('adminNewLogin').value=''; el('adminNewPass').value=''; el('adminNewName').value='';
-  renderAll();
-});
-
-/* Profile edit (simple prompts) */
-el('openProfileBtn').addEventListener('click', ()=>{
-  if(!current) return;
-  if(current.role === 'admin'){
-    const newName = prompt('Имя (админ)', current.name) || current.name;
-    current.name = newName;
-    const a = users.find(u=>u.role==='admin'); if(a) a.name = newName;
-    saveAll(); renderAll(); return;
-  }
-  const newName = prompt('Имя', current.name) || current.name;
-  let newLogin = prompt('Логин', current.username) || current.username;
-  if(newLogin !== current.username && users.some(u=>u.username === newLogin)){ toast('Логин занят'); return; }
-  const newPass = prompt('Пароль', current.password) || current.password;
-  const user = users.find(u=>u.username === current.username);
-  if(user){
-    if(newLogin !== user.username){
-      reports.forEach(r=>{ if(r.username === user.username) r.username = newLogin; });
-      const t = traders.find(tt=>tt.username === user.username); if(t) t.username = newLogin;
-      user.username = newLogin;
+function renderMiniChart(username) {
+  const tr = traders.find(t => t.username === username) || traders[0];
+  if (!tr) { if (miniChart) miniChart.destroy(); return; }
+  
+  const ctx = el('miniChart').getContext('2d');
+  if (miniChart) miniChart.destroy();
+  
+  const allDates = getAllDatesSorted();
+  const labels = ['Старт', ...allDates.map(d => (new Date(d + 'T00:00:00')).toLocaleDateString())];
+  const data = buildSeriesForMetric('equity', allDates, tr.username);
+  const col = tr.color || randomColorHsl();
+  const bg = col.startsWith('#') ? col + '22' : col.replace('hsl', 'hsla').replace(')', ',0.12)');
+  
+  miniChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: tr.name,
+        data,
+        borderColor: col,
+        backgroundColor: bg,
+        fill: true,
+        tension: 0.25,
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#9fb0c8' } },
+        y: { ticks: { color: '#9fb0c8' } }
+      }
     }
-    user.name = newName; user.password = newPass;
-    const t2 = traders.find(tt=>tt.username === user.username); if(t2) t2.name = newName;
-    current = {...user}; saveAll(); renderAll();
-  }
+  });
+}
+
+// Обработчики
+el('reportFilter').addEventListener('change', () => renderReportsList(el('reportFilter').value));
+el('clearFilter').addEventListener('click', () => { el('reportFilter').value = 'all'; renderReportsList(); });
+el('resetReport').addEventListener('click', () => {
+  el('repResult').value = '';
+  el('repDraw').value = '';
+  el('repEmotion').value = '';
+  el('repDiscipline').value = '';
 });
 
-/* Filters & reset */
-el('reportFilter').addEventListener('change', ()=> renderReportsList(el('reportFilter').value) );
-el('clearFilter').addEventListener('click', ()=>{ el('reportFilter').value='all'; renderReportsList(); });
-el('resetReport').addEventListener('click', ()=> { el('repResult').value=''; el('repDraw').value=''; el('repEmotion').value=''; el('repDiscipline').value=''; });
-
-/* Tabs switching */
 document.querySelectorAll('.tab').forEach(btn => {
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('bg-accent','text-white'));
-    btn.classList.add('bg-accent','text-white');
-    document.querySelectorAll('.tab-content').forEach(sec=>sec.classList.add('hidden'));
-    const id = btn.dataset.tab; document.getElementById(id).classList.remove('hidden');
-    if(id === 'tabCharts') renderMainChart();
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('bg-accent', 'text-white'));
+    btn.classList.add('bg-accent', 'text-white');
+    document.querySelectorAll('.tab-content').forEach(sec => sec.classList.add('hidden'));
+    const id = btn.dataset.tab;
+    document.getElementById(id).classList.remove('hidden');
+    if (id === 'tabCharts') renderMainChart();
   });
 });
 
-/* update report trader select */
-function updateReportTraderSelect(){
-  const sel = el('repTrader');
-  sel.innerHTML = '';
-  traders.forEach(t=>{ const opt = document.createElement('option'); opt.value = t.username; opt.textContent = `${t.name} (${t.username})`; sel.appendChild(opt); });
-  if(current && current.role === 'trader'){ sel.value = current.username; sel.disabled = true; } else sel.disabled = false;
-}
-
-/* initial render */
-renderAll();
-updateReportFilter();
-populateReportTraderSelect();
-
-/* When checkboxes change re-render chart */
-document.addEventListener('change', (e)=>{
-  if(e.target && e.target.classList && e.target.classList.contains('chart-trader-checkbox')) renderMainChart();
-});
-/* Export debug data if needed */
-window._DATA = { users, traders, reports, recomputeAllSeries };
-
-/* Utility functions used earlier but exposed here for completeness */
-function updateReportFilter(){ const sel = el('reportFilter'); sel.innerHTML = '<option value="all">Все</option>'; traders.forEach(t=>{ const o=document.createElement('option'); o.value=t.username; o.textContent = t.name + ' ('+t.username+')'; sel.appendChild(o); }); }
-function populateReportTraderSelect(){ updateReportTraderSelect(); }
-
-/* ensure charts update when metric select or update button clicked */
 el('chartSelectType').addEventListener('change', renderMainChart);
 el('updateChartBtn').addEventListener('click', renderMainChart);
 
-/* ensure admin/trader lists update when data changed (helper) */
-function updateReportFilter(){ const sel = el('reportFilter'); const prev = sel.value || 'all'; sel.innerHTML = '<option value="all">Все</option>'; traders.forEach(t=>{ const o=document.createElement('option'); o.value=t.username; o.textContent = t.name + ' ('+t.username+')'; sel.appendChild(o); }); sel.value = prev || 'all'; }
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('chart-trader-checkbox')) {
+    renderMainChart();
+  }
+});
 
-/* Done */
+el('openProfileBtn').addEventListener('click', () => {
+  if (!current) return;
+  if (current.role === 'admin') {
+    const newName = prompt('Имя (админ)', current.name) || current.name;
+    toast('Функция в разработке');
+  } else {
+    toast('Функция в разработке');
+  }
+});
+
+// Автоматический вход при загрузке
+auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    const userSnapshot = await db.collection(USERS_COLLECTION).where('email', '==', user.email).get();
+    if (!userSnapshot.empty) {
+      const userData = userSnapshot.docs[0].data();
+      current = { id: userSnapshot.docs[0].id, uid: user.uid, ...userData };
+      enterApp();
+    }
+  }
+});
+
+// Слушаем изменения в реальном времени
+db.collection(REPORTS_COLLECTION).onSnapshot(() => {
+  if (current) {
+    loadAll().then(() => {
+      if (current) renderAll();
+    });
+  }
+});
+
+// Инициализация
+loadAll();
 </script>
 </body>
-
 </html>
-
-
-
-
-
