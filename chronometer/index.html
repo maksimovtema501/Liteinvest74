@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Хронометр</title>
+<meta name="description" content="Ручной хронометраж лыжных гонок и биатлона: отсечки, места, отставания, протокол.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#020617">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Хронометр">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#020617; --panel:#0f172a; --panel2:#1e293b; --line:#1e293b; --line2:#334155;
+  --text:#e2e8f0; --muted:#94a3b8; --dim:#64748b;
+  --orange:#f97316; --cyan:#22d3ee; --emerald:#10b981; --amber:#f59e0b; --red:#ef4444;
+  --safe-t:env(safe-area-inset-top); --safe-b:env(safe-area-inset-bottom);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased; overscroll-behavior:none;
+  user-select:none; -webkit-user-select:none;
+}
+input,textarea{user-select:text;-webkit-user-select:text}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ---------- каркас ---------- */
+#head{
+  position:sticky; top:0; z-index:20; background:rgba(2,6,23,.92);
+  backdrop-filter:blur(12px); border-bottom:1px solid var(--line);
+  padding:calc(var(--safe-t) + 10px) 14px 10px;
+}
+.head-row{display:flex;align-items:center;gap:12px}
+.race-name{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clock{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.5px;line-height:1.1}
+.clock.idle{color:var(--dim)}
+.head-actions{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
+main{padding:14px 14px calc(var(--safe-b) + 92px)}
+
+#nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+  background:rgba(15,23,42,.96); backdrop-filter:blur(12px);
+  border-top:1px solid var(--line); padding-bottom:var(--safe-b);
+}
+#nav button{flex:1;padding:11px 4px 9px;font-size:11px;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:3px}
+#nav button .ico{font-size:21px;line-height:1}
+#nav button.on{color:var(--cyan)}
+
+/* ---------- элементы ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:13px 18px;border-radius:12px;background:var(--panel2);
+  border:1px solid var(--line2);font-weight:600;font-size:15px;
+}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--orange);border-color:var(--orange);color:#0b0500}
+.btn.danger{background:transparent;border-color:var(--red);color:#fca5a5}
+.btn.solid-danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn.sm{padding:9px 13px;font-size:14px;border-radius:10px}
+.btn.wide{width:100%}
+.btn[disabled]{opacity:.4}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:15px;font-weight:600;color:var(--muted);letter-spacing:.02em}
+.hint{font-size:13px;color:var(--dim);line-height:1.45}
+.row{display:flex;gap:8px;align-items:center}
+.row.wrap{flex-wrap:wrap}
+label.f{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
+.field{margin-bottom:14px}
+input[type=text],input[type=number],textarea,select{
+  width:100%;padding:12px;border-radius:11px;background:#020617;
+  border:1px solid var(--line2);color:var(--text);font-size:16px;
+}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--cyan);outline-offset:-1px}
+textarea{min-height:110px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:14px}
+
+/* сегментированный переключатель */
+.seg{display:flex;background:#020617;border:1px solid var(--line2);border-radius:12px;padding:3px;gap:3px;overflow-x:auto}
+.seg button{flex:1;white-space:nowrap;padding:10px 12px;border-radius:9px;font-size:14px;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--cyan);color:#04141a}
+.seg.orange button.on{background:var(--orange);color:#0b0500}
+
+/* карточка последней отсечки */
+.last{border:1px solid var(--line2);border-radius:16px;padding:14px;margin-bottom:14px;
+      background:linear-gradient(160deg,#12203b,#0f172a)}
+.last .bib{font-size:44px;font-weight:800;color:var(--orange);line-height:1}
+.last .nm{font-size:17px;font-weight:600;margin-top:2px}
+.last .tm{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.last .pl{font-size:13px;color:var(--muted)}
+.gap-lead{color:var(--emerald);font-weight:700}
+.gap-loss{color:var(--orange);font-weight:700}
+.t-neg{color:var(--red)}
+
+/* сетка номеров */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+.nbtn{position:relative;background:var(--panel2);border:1px solid var(--line2);
+      border-radius:13px;padding:12px 6px 9px;text-align:center;min-height:74px}
+.nbtn .n{font-size:24px;font-weight:800;color:var(--orange);line-height:1}
+.nbtn .s{font-size:11px;color:var(--dim);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nbtn.done{background:#052e26;border-color:#065f46}
+.nbtn.done .n{color:#6ee7b7;font-size:20px}
+.nbtn .x{position:absolute;top:-1px;right:-1px;width:34px;height:34px;border-radius:0 13px 0 13px;
+         color:#fca5a5;font-size:16px;line-height:34px}
+.nbtn:active{transform:scale(.96)}
+
+/* списки / таблицы */
+.lst{display:flex;flex-direction:column;gap:1px;background:var(--line);border-radius:12px;overflow:hidden}
+.lst .it{display:flex;align-items:center;gap:10px;background:var(--panel);padding:11px 12px}
+.pl-badge{min-width:30px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;color:var(--muted)}
+.pl-badge.p1{color:#fbbf24}
+.bib-badge{min-width:38px;text-align:center;font-weight:700;color:var(--orange);font-variant-numeric:tabular-nums}
+.nm-cell{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.t-cell{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.g-cell{font-variant-numeric:tabular-nums;font-size:13px;min-width:66px;text-align:right}
+
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -14px;padding:0 14px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 8px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--bg)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.col-active{background:rgba(34,211,238,.08)}
+th.col-active{color:var(--cyan)}
+.st-lead{color:var(--emerald);font-weight:700}
+.st-gap{color:var(--orange)}
+.st-course{color:var(--amber);font-size:13px}
+.st-none{color:#475569}
+.grp{font-size:13px;font-weight:700;color:var(--cyan);padding:14px 0 6px;letter-spacing:.03em}
+
+.empty{text-align:center;color:var(--dim);padding:26px 10px;font-size:14px;line-height:1.5}
+.chip{background:var(--panel2);border:1px solid var(--line2);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--muted)}
+
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--safe-b) + 84px);
+  background:#334155;color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;
+  z-index:60;opacity:0;pointer-events:none;transition:opacity .18s;max-width:88vw;text-align:center;
+}
+#toast.on{opacity:1}
+.sep{height:1px;background:var(--line);margin:14px 0}
+</style>
+</head>
+<body>
+
+<header id="head">
+  <div class="head-row">
+    <div style="min-width:0">
+      <div class="race-name" id="hRace">Гонка</div>
+      <div class="clock idle" id="hClock">—:—</div>
+    </div>
+    <div class="head-actions" id="hActions"></div>
+  </div>
+</header>
+
+<main>
+  <!-- ХРОНОМЕТРАЖ -->
+  <section id="tab-timing">
+    <div id="cpSwitch"></div>
+    <div id="lastCard"></div>
+
+    <div class="card">
+      <h2>Ручной ввод номера</h2>
+      <form class="row" id="manualForm">
+        <input type="number" id="manualBib" inputmode="numeric" pattern="[0-9]*" placeholder="Номер" style="flex:1" autocomplete="off">
+        <button class="btn primary" type="submit">Засечь</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 id="gridTitle">Участники</h2>
+      <div id="numGrid" class="grid"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="liveTitle">Рейтинг</h2>
+      <div id="liveRank"></div>
+    </div>
+  </section>
+
+  <!-- ПРОТОКОЛ -->
+  <section id="tab-results" hidden>
+    <div class="card">
+      <div class="field">
+        <label class="f">Зачёт по отсечке</label>
+        <div class="seg" id="resCpSeg"></div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label class="f">Вид протокола</label>
+        <div class="seg orange" id="resModeSeg">
+          <button data-act="resmode" data-v="all">Общий</button>
+          <button data-act="resmode" data-v="groups">По группам</button>
+        </div>
+      </div>
+    </div>
+    <div id="resultsBody"></div>
+    <button class="btn wide" data-act="export">Экспорт протокола (CSV)</button>
+  </section>
+
+  <!-- НАСТРОЙКИ -->
+  <section id="tab-setup" hidden>
+    <div class="card">
+      <h2>Гонка</h2>
+      <div class="field">
+        <label class="f" for="setName">Название</label>
+        <input type="text" id="setName" placeholder="Название гонки">
+      </div>
+      <div class="field">
+        <label class="f">Режим старта</label>
+        <div class="seg" id="modeSeg">
+          <button data-act="mode" data-v="mass">Общий</button>
+          <button data-act="mode" data-v="interval">Раздельный</button>
+        </div>
+      </div>
+      <div class="field" id="intervalField" style="margin-bottom:0">
+        <label class="f" for="setInterval">Интервал между стартами, сек</label>
+        <input type="number" id="setInterval" min="1" max="600" inputmode="numeric">
+        <div class="hint" style="margin-top:6px">Старт даётся в момент ухода первого номера. Дальше время старта каждого считается по порядку номеров.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Отсечки</h2>
+      <div id="cpList"></div>
+      <button class="btn sm wide" data-act="addcp" style="margin-top:10px">+ Добавить отсечку</button>
+      <div class="hint" style="margin-top:8px">Последняя отсечка считается финишем.</div>
+    </div>
+
+    <div class="card">
+      <h2>Участники</h2>
+      <div class="row wrap" style="margin-bottom:12px">
+        <span class="chip" id="athCount">0 из 150</span>
+        <button class="btn sm danger" data-act="clearAth" style="margin-left:auto">Очистить всех</button>
+      </div>
+
+      <div class="field">
+        <label class="f">Сгенерировать номера 1…N</label>
+        <div class="row">
+          <input type="number" id="genN" min="1" max="150" placeholder="Напр. 30" inputmode="numeric" style="flex:1">
+          <button class="btn sm" data-act="gen">Создать</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="f">Добавить одного</label>
+        <form class="row wrap" id="addForm">
+          <input type="number" id="addBib" placeholder="№" inputmode="numeric" style="width:76px">
+          <input type="text" id="addName" placeholder="Фамилия Имя" style="flex:1;min-width:130px">
+          <input type="text" id="addCat" placeholder="Группа" style="width:100px">
+          <button class="btn sm" type="submit">+</button>
+        </form>
+      </div>
+
+      <div class="field">
+        <label class="f">Импорт файла (CSV, TXT, Excel)</label>
+        <input type="file" id="fileInput" accept=".csv,.txt,.xlsx,.xls" hidden>
+        <button class="btn sm wide" data-act="pickFile">Выбрать файл</button>
+      </div>
+
+      <div class="field">
+        <label class="f">Вставить текст протокола</label>
+        <textarea id="pasteArea" placeholder="1 Иванов Иван МЖ&#10;2 Петров Пётр МЖ&#10;3 Сидоров Иван Ю17"></textarea>
+        <button class="btn sm wide" data-act="parsePaste" style="margin-top:8px">Разобрать и добавить</button>
+        <div class="hint" style="margin-top:6px">Колонки определяются по заголовкам (номер / фамилия / группа) либо по порядку: 1-я — номер, 2-я — имя, 3-я — группа.</div>
+      </div>
+
+      <div class="sep"></div>
+      <div id="athList"></div>
+    </div>
+
+    <div class="card">
+      <h2>О приложении</h2>
+      <div class="hint">
+        Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
+        и не требуют интернета: можно работать в лесу и на морозе.<br><br>
+        Версия <span id="appVer">3.0</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav id="nav">
+  <button data-act="tab" data-v="timing"><span class="ico">⏱</span>Хронометраж</button>
+  <button data-act="tab" data-v="results"><span class="ico">🏁</span>Протокол</button>
+  <button data-act="tab" data-v="setup"><span class="ico">⚙️</span>Настройки</button>
+</nav>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const KEY = "ski-timer-v3";
+const MAX_ATHLETES = 150;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ============ состояние ============ */
+let S = {
+  race: { name: "Гонка", mode: "interval", t0: null, interval: 30 },
+  checkpoints: ["Отсечка", "Финиш"],
+  athletes: [],
+  records: {},
+  currentCp: 0,
+  ui: { tab: "timing", resCp: 0, resMode: "all" },
+  last: null
+};
+let confirmReset = false;
+let seq = 0;
+
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    S = Object.assign(S, d);
+    S.race = Object.assign({ name: "Гонка", mode: "interval", t0: null, interval: 30 }, d.race || {});
+    S.ui = Object.assign({ tab: "timing", resCp: 0, resMode: "all" }, d.ui || {});
+    if (!Array.isArray(S.checkpoints) || !S.checkpoints.length) S.checkpoints = ["Финиш"];
+    if (!Array.isArray(S.athletes)) S.athletes = [];
+    if (!S.records || typeof S.records !== "object") S.records = {};
+    S.athletes.forEach(a => { const n = parseInt(String(a.id).replace(/\D/g, ""), 10); if (n > seq) seq = n; });
+    clampCps();
+  } catch (e) { console.warn("load failed", e); }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch (e) { toast("Не удалось сохранить данные"); }
+}
+function clampCps() {
+  const max = S.checkpoints.length - 1;
+  S.currentCp = Math.min(Math.max(0, S.currentCp | 0), max);
+  S.ui.resCp = Math.min(Math.max(0, S.ui.resCp | 0), max);
+}
+
+/* ============ логика хронометража ============ */
+const bibNum = b => { const n = parseInt(String(b).replace(/\D/g, ""), 10); return isNaN(n) ? 1e9 : n; };
+
+function sortedByBib() {
+  return S.athletes.slice().sort((a, b) =>
+    bibNum(a.bib) - bibNum(b.bib) || String(a.bib).localeCompare(String(b.bib), "ru"));
+}
+function orderIndexMap() {
+  const m = {};
+  sortedByBib().forEach((a, i) => { m[a.id] = i; });
+  return m;
+}
+function startBasis(a, oi) {
+  if (S.race.t0 == null) return null;
+  if (S.race.mode === "mass") return S.race.t0;
+  return S.race.t0 + (oi[a.id] || 0) * S.race.interval * 1000;
+}
+function elapsedAt(a, cp, oi) {
+  const r = S.records[a.id];
+  if (!r || r[cp] == null || S.race.t0 == null) return null;
+  return r[cp] - startBasis(a, oi);
+}
+function passedCount(a) {
+  const r = S.records[a.id];
+  return r ? Object.keys(r).length : 0;
+}
+
+/**
+ * Ранжирование в зачёте по отсечке cp.
+ * subset — подмножество (напр. одна группа); порядок стартов при этом
+ * всегда считается по полному списку, иначе раздельный старт «поедет».
+ * Место присваивается только прошедшим cp.
+ */
+function ranking(cp, subset) {
+  const oi = orderIndexMap();
+  const field = subset || S.athletes;
+  const done = [], rest = [];
+  for (const a of field) {
+    const t = elapsedAt(a, cp, oi);
+    if (t != null) done.push({ a, t }); else rest.push(a);
+  }
+  done.sort((x, y) => x.t - y.t);
+  const lead = done.length ? done[0].t : null;
+  const rows = done.map((x, i) => ({
+    a: x.a, time: x.t, place: i + 1,
+    gap: i === 0 ? 0 : x.t - lead, status: "done"
+  }));
+
+  const info = a => {
+    const r = S.records[a.id] || {};
+    const keys = Object.keys(r).map(Number).sort((p, q) => p - q);
+    return { cnt: keys.length, last: keys.length ? elapsedAt(a, keys[keys.length - 1], oi) : null };
+  };
+  rest.sort((a, b) => {
+    const A = info(a), B = info(b);
+    if (B.cnt !== A.cnt) return B.cnt - A.cnt;
+    if (A.last == null) return B.last == null ? bibNum(a.bib) - bibNum(b.bib) : 1;
+    if (B.last == null) return -1;
+    return A.last - B.last;
+  });
+  const now = Date.now();
+  for (const a of rest) {
+    const started = S.race.t0 != null && now >= startBasis(a, oi);
+    rows.push({
+      a, time: null, place: null, gap: null,
+      status: (started || passedCount(a) > 0) ? "course" : "none"
+    });
+  }
+  return rows;
+}
+
+/* ============ форматирование ============ */
+function fmt(ms) {
+  if (ms == null) return "—";
+  const neg = ms < 0;
+  const tenths = Math.round(Math.abs(ms) / 100);
+  const d = tenths % 10, total = Math.floor(tenths / 10);
+  const s = total % 60, m = Math.floor(total / 60) % 60, h = Math.floor(total / 3600);
+  const p = n => String(n).padStart(2, "0");
+  return (neg ? "−" : "") + (h > 0 ? h + ":" + p(m) + ":" + p(s) + "." + d : m + ":" + p(s) + "." + d);
+}
+/** Время в ячейке; отрицательное (отсечка раньше своего старта) — красным. */
+function timeCell(ms) {
+  if (ms == null) return '<span class="st-none">—</span>';
+  return ms < 0 ? '<span class="t-neg">' + fmt(ms) + "</span>" : fmt(ms);
+}
+function fmtGap(ms) {
+  if (ms == null) return "—";
+  const sign = ms < 0 ? "−" : "+";
+  const tenths = Math.round(Math.abs(ms) / 100);
+  const d = tenths % 10, total = Math.floor(tenths / 10);
+  const s = total % 60, m = Math.floor(total / 60);
+  return sign + (m > 0 ? m + ":" + String(s).padStart(2, "0") + "." + d : s + "." + d);
+}
+
+/* ============ действия ============ */
+function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms || 35); } catch (e) {} }
+
+let toastTimer = null;
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 2200);
+}
+
+function giveStart() {
+  S.race.t0 = Date.now();
+  S.last = null;
+  confirmReset = false;
+  vibrate([40, 60, 40]);
+  save(); renderAll(); requestWakeLock();
+  toast("Старт дан");
+}
+function resetRace() {
+  S.race.t0 = null;
+  S.records = {};
+  S.last = null;
+  confirmReset = false;
+  save(); renderAll();
+  toast("Гонка сброшена");
+}
+function punch(id) {
+  if (S.race.t0 == null) { toast("Сначала дайте старт"); return; }
+  const r = S.records[id] || (S.records[id] = {});
+  if (r[S.currentCp] != null) { toast("Уже отсечён на этой точке"); return; }
+  const a = S.athletes.find(x => x.id === id);
+  const basis = a ? startBasis(a, orderIndexMap()) : null;
+  if (basis != null && Date.now() < basis) {
+    toast("№" + a.bib + " ещё не стартовал — проверьте номер");
+  }
+  r[S.currentCp] = Date.now();
+  S.last = { id: id, cp: S.currentCp };
+  vibrate(35);
+  save(); renderTiming();
+}
+function unpunch(id) {
+  const r = S.records[id];
+  if (!r || r[S.currentCp] == null) return;
+  delete r[S.currentCp];
+  if (!Object.keys(r).length) delete S.records[id];
+  if (S.last && S.last.id === id && S.last.cp === S.currentCp) S.last = null;
+  vibrate(20);
+  save(); renderTiming();
+}
+
+/* ============ рендер: шапка ============ */
+function renderHead() {
+  $("hRace").textContent = S.race.name || "Гонка";
+  const started = S.race.t0 != null;
+  const clock = $("hClock");
+  clock.classList.toggle("idle", !started);
+  if (!started) clock.textContent = "готов к старту";
+
+  const act = $("hActions");
+  if (!started) {
+    act.innerHTML = '<button class="btn primary" data-act="start">Дать старт</button>';
+  } else if (confirmReset) {
+    act.innerHTML =
+      '<button class="btn sm solid-danger" data-act="resetYes">Сбросить</button>' +
+      '<button class="btn sm" data-act="resetNo">Отмена</button>';
+  } else {
+    act.innerHTML = '<button class="btn sm danger" data-act="resetAsk">Сброс</button>';
+  }
+}
+function tickClock() {
+  if (S.race.t0 == null) return;
+  $("hClock").textContent = fmt(Date.now() - S.race.t0);
+}
+
+/* ============ рендер: хронометраж ============ */
+function renderTiming() {
+  const cps = S.checkpoints;
+
+  // переключатель отсечек
+  $("cpSwitch").innerHTML = cps.length > 1
+    ? '<div class="card"><h2>Текущая отсечка</h2><div class="seg">' +
+      cps.map((c, i) => '<button data-act="cp" data-v="' + i + '"' +
+        (i === S.currentCp ? ' class="on"' : '') + '>' + esc(c) + '</button>').join("") +
+      '</div></div>'
+    : "";
+
+  // карточка последней отсечки
+  const lc = $("lastCard");
+  if (S.last && S.last.cp === S.currentCp) {
+    const a = S.athletes.find(x => x.id === S.last.id);
+    if (!a) { lc.innerHTML = ""; }
+    else {
+      const rows = ranking(S.currentCp);
+      const me = rows.find(r => r.a.id === a.id);
+      const second = rows.find(r => r.place === 2);
+      let badge;
+      if (me && me.place === 1) {
+        badge = second
+          ? '<span class="gap-lead">лидер ' + fmtGap(second.time - me.time) + '</span>'
+          : '<span class="gap-lead">лидер</span>';
+      } else if (me && me.gap != null) {
+        badge = '<span class="gap-loss">' + fmtGap(me.gap) + '</span>';
+      } else badge = "";
+      lc.innerHTML =
+        '<div class="last"><div class="row" style="align-items:flex-start">' +
+          '<div style="min-width:0">' +
+            '<div class="bib">' + esc(a.bib) + '</div>' +
+            '<div class="nm">' + esc(a.name || "—") + '</div>' +
+          '</div>' +
+          '<div style="margin-left:auto;text-align:right">' +
+            '<div class="tm">' + timeCell(me ? me.time : null) + '</div>' +
+            '<div class="pl">' + (me && me.place ? me.place + " место · " : "") + badge + '</div>' +
+          '</div>' +
+        '</div></div>';
+    }
+  } else lc.innerHTML = "";
+
+  // сетка номеров
+  const oi = orderIndexMap();
+  const rows = ranking(S.currentCp);
+  const byId = {};
+  rows.forEach(r => { byId[r.a.id] = r; });
+  const list = sortedByBib();
+
+  $("gridTitle").textContent = "Участники · " + esc(cps[S.currentCp] || "");
+  $("numGrid").innerHTML = list.length
+    ? list.map(a => {
+        const r = byId[a.id];
+        const done = elapsedAt(a, S.currentCp, oi) != null;
+        if (done) {
+          const g = r.place === 1 ? "лидер" : fmtGap(r.gap);
+          return '<div class="nbtn done"><div class="n">' + esc(a.bib) + '</div>' +
+                 '<div class="s">' + r.place + " · " + g + '</div>' +
+                 '<button class="x" data-act="unpunch" data-v="' + a.id + '" aria-label="Стереть">✕</button></div>';
+        }
+        return '<button class="nbtn" data-act="punch" data-v="' + a.id + '">' +
+               '<div class="n">' + esc(a.bib) + '</div>' +
+               '<div class="s">' + esc(a.name || "") + '</div></button>';
+      }).join("")
+    : '<div class="empty">Нет участников.<br>Добавьте их в «Настройках».</div>';
+
+  // живой рейтинг
+  const done = rows.filter(r => r.status === "done");
+  $("liveTitle").textContent = "Рейтинг · " + esc(cps[S.currentCp] || "");
+  $("liveRank").innerHTML = done.length
+    ? '<div class="lst">' + done.map(r =>
+        '<div class="it">' +
+          '<span class="pl-badge' + (r.place === 1 ? " p1" : "") + '">' + r.place + '</span>' +
+          '<span class="bib-badge">' + esc(r.a.bib) + '</span>' +
+          '<span class="nm-cell">' + esc(r.a.name || "") + '</span>' +
+          '<span class="t-cell">' + timeCell(r.time) + '</span>' +
+          '<span class="g-cell ' + (r.place === 1 ? "st-lead" : "st-gap") + '">' +
+            (r.place === 1 ? "лидер" : fmtGap(r.gap)) + '</span>' +
+        '</div>').join("") + '</div>'
+    : '<div class="empty">Пока никто не отсечён на этой точке.</div>';
+}
+
+/* ============ рендер: протокол ============ */
+function statusCell(a, cp, cpRows) {
+  const r = cpRows.find(x => x.a.id === a.id);
+  if (!r) return '<span class="st-none">—</span>';
+  if (r.status === "done") {
+    return r.place === 1
+      ? '<span class="st-lead">лидер</span>'
+      : '<span class="st-gap">' + fmtGap(r.gap) + '</span>';
+  }
+  return r.status === "course"
+    ? '<span class="st-course">на трассе</span>'
+    : '<span class="st-none">—</span>';
+}
+
+function renderResults() {
+  const cps = S.checkpoints;
+  $("resCpSeg").innerHTML = cps.map((c, i) =>
+    '<button data-act="rescp" data-v="' + i + '"' +
+    (i === S.ui.resCp ? ' class="on"' : '') + '>' + esc(c) + '</button>').join("");
+  Array.from($("resModeSeg").children).forEach(b =>
+    b.classList.toggle("on", b.dataset.v === S.ui.resMode));
+
+  if (!S.athletes.length) {
+    $("resultsBody").innerHTML = '<div class="card"><div class="empty">Нет участников.</div></div>';
+    return;
+  }
+
+  const oi = orderIndexMap();
+  const active = S.ui.resCp;
+
+  /** Таблица по подмножеству: места и лидер считаются внутри него. */
+  const table = (athletes, showCat) => {
+    const cache = cps.map((_, i) => ranking(i, athletes));
+    const head =
+      '<tr><th class="num">М</th><th class="num">№</th><th>Участник</th>' +
+      (showCat ? "<th>Группа</th>" : "") +
+      cps.map((c, i) => '<th class="num' + (i === active ? " col-active" : "") + '" colspan="2">' +
+        esc(c) + "</th>").join("") + "</tr>";
+    const body = cache[active].map(r => {
+      const a = r.a;
+      return "<tr>" +
+        '<td class="num">' + (r.place || '<span class="st-none">—</span>') + "</td>" +
+        '<td class="num" style="color:var(--orange);font-weight:700">' + esc(a.bib) + "</td>" +
+        "<td>" + esc(a.name || "") + "</td>" +
+        (showCat ? "<td>" + esc(a.category || "") + "</td>" : "") +
+        cps.map((_, i) => {
+          const cls = i === active ? " col-active" : "";
+          const t = elapsedAt(a, i, oi);
+          return '<td class="num' + cls + '">' + timeCell(t) + "</td>" +
+                 '<td class="num' + cls + '">' + statusCell(a, i, cache[i]) + "</td>";
+        }).join("") +
+        "</tr>";
+    }).join("");
+    return '<div class="tbl-wrap"><table><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>";
+  };
+
+  $("resultsBody").innerHTML = S.ui.resMode === "all"
+    ? '<div class="card">' + table(S.athletes, true) + "</div>"
+    : groupAthletes().map(g =>
+        '<div class="card"><div class="grp" style="padding-top:0">' + esc(g.name) + "</div>" +
+        table(g.list, false) + "</div>").join("");
+}
+
+/** Разбивка по категориям, отсортированная по названию группы. */
+function groupAthletes() {
+  const groups = {};
+  S.athletes.forEach(a => {
+    const k = (a.category || "").trim() || "Без группы";
+    (groups[k] || (groups[k] = [])).push(a);
+  });
+  return Object.keys(groups).sort((a, b) => a.localeCompare(b, "ru"))
+    .map(k => ({ name: k, list: groups[k] }));
+}
+
+/* ============ экспорт ============ */
+function exportCSV() {
+  if (!S.athletes.length) { toast("Нет данных для экспорта"); return; }
+  const cps = S.checkpoints, active = S.ui.resCp, oi = orderIndexMap();
+  const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+
+  const lines = [];
+  lines.push([q(S.race.name || "Гонка")].join(";"));
+  lines.push([q("Зачёт по отсечке: " + (cps[active] || ""))].join(";"));
+  lines.push([q("Режим старта: " + (S.race.mode === "mass" ? "общий" : "раздельный, интервал " + S.race.interval + " с"))].join(";"));
+  lines.push("");
+
+  const head = ["Место", "Номер", "Участник", "Группа"];
+  cps.forEach(c => { head.push(c + " — время", c + " — отставание"); });
+
+  const section = athletes => {
+    const cache = cps.map((_, i) => ranking(i, athletes));
+    lines.push(head.map(q).join(";"));
+    cache[active].forEach(r => {
+      const a = r.a;
+      const row = [r.place || "", a.bib, a.name || "", a.category || ""];
+      cps.forEach((_, i) => {
+        const t = elapsedAt(a, i, oi);
+        const rr = cache[i].find(x => x.a.id === a.id);
+        row.push(t == null ? "" : fmt(t));
+        if (!rr) row.push("");
+        else if (rr.status === "done") row.push(rr.place === 1 ? "лидер" : fmtGap(rr.gap));
+        else row.push(rr.status === "course" ? "на трассе" : "");
+      });
+      lines.push(row.map(q).join(";"));
+    });
+  };
+
+  if (S.ui.resMode === "all") {
+    section(S.athletes);
+  } else {
+    groupAthletes().forEach(g => {
+      lines.push(q("Группа: " + g.name));
+      section(g.list);
+      lines.push("");
+    });
+  }
+
+  const csv = "﻿" + lines.join("\r\n");
+  const name = ((S.race.name || "protokol").replace(/[^\wа-яА-ЯёЁ\- ]+/g, "").trim() || "protokol")
+    + " — " + (cps[active] || "") + ".csv";
+  const file = new File([csv], name, { type: "text/csv;charset=utf-8" });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: name }).catch(() => {});
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/* ============ разбор списков участников ============ */
+function parseCSVText(text) {
+  const first = (text.split(/\r?\n/)[0] || "");
+  const counts = { ",": 0, ";": 0, "\t": 0 };
+  for (const ch of first) if (ch in counts) counts[ch]++;
+  const d = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  if (!counts[d]) return null;
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === d) { row.push(cur); cur = ""; }
+    else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+    else if (c !== "\r") cur += c;
+  }
+  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+/** Текст → массив строк-колонок. Понимает CSV и «1 Иванов Иван МЖ». */
+function rowsFromText(text) {
+  const csv = parseCSVText(text);
+  if (csv) return csv;
+  // короткий последний токен вида МЖ / Ю17 / М-40 считаем группой
+  const catRe = /^[A-Za-zА-Яа-яЁё]{1,3}-?\d{0,3}$/;
+  return text.split(/\r?\n/).filter(l => l.trim()).map(l => {
+    const m = l.match(/^\s*(\d{1,4})\s*[).\-]?[\s ]+(.+)$/);
+    const bib = m ? m[1] : "";
+    const tokens = (m ? m[2] : l).trim().split(/\s+/);
+    let cat = "";
+    if (tokens.length >= 3) {
+      const last = tokens[tokens.length - 1];
+      if (last.length <= 5 && catRe.test(last)) cat = tokens.pop();
+    }
+    return [bib, tokens.join(" "), cat];
+  });
+}
+
+/** Массив строк → участники. Колонки по заголовкам либо позиционно. */
+function parseRows(rows) {
+  rows = (rows || []).filter(r => r && r.some(c => String(c == null ? "" : c).trim() !== ""));
+  if (!rows.length) return [];
+
+  const head = rows[0].map(c => String(c == null ? "" : c).toLowerCase().trim());
+  const find = keys => head.findIndex(h => h && keys.some(k => h.includes(k)));
+  const cBib = find(["номер", "№", "bib", "nr"]);
+  const cName = find(["фамилия", "фио", "имя", "участник", "спортсмен", "name"]);
+  const cCat = find(["категор", "группа", "разряд", "class", "group"]);
+
+  let idx = { bib: 0, name: 1, cat: 2 }, start = 0;
+  // если «номер» и «фамилия» нашлись в одной ячейке — это не заголовок, читаем позиционно
+  if ((cBib >= 0 || cName >= 0) && cBib !== cName) {
+    idx = { bib: cBib >= 0 ? cBib : 0, name: cName >= 0 ? cName : 1, cat: cCat };
+    start = 1;
+  }
+
+  const out = [];
+  for (let i = start; i < rows.length; i++) {
+    const r = rows[i];
+    const cell = n => (n != null && n >= 0 && r[n] != null) ? String(r[n]).trim() : "";
+    const bib = cell(idx.bib).replace(/[^\d]/g, "");
+    const name = cell(idx.name);
+    const cat = cell(idx.cat);
+    if (!bib && !name) continue;
+    out.push({ bib: bib, name: name, category: cat });
+  }
+  return out;
+}
+
+function addAthletes(list) {
+  if (!list.length) { toast("Не удалось распознать ни одной строки"); return; }
+  const used = new Set(S.athletes.map(a => String(a.bib)));
+  let maxBib = S.athletes.reduce((m, a) => Math.max(m, bibNum(a.bib) === 1e9 ? 0 : bibNum(a.bib)), 0);
+  let added = 0, skipped = 0;
+
+  for (const it of list) {
+    if (S.athletes.length >= MAX_ATHLETES) break;
+    let bib = String(it.bib || "").trim();
+    if (!bib) bib = String(++maxBib);
+    if (used.has(bib)) { skipped++; continue; }
+    used.add(bib);
+    if (bibNum(bib) !== 1e9) maxBib = Math.max(maxBib, bibNum(bib));
+    S.athletes.push({
+      id: "a" + (++seq),
+      bib: bib,
+      name: (it.name || "").trim(),
+      category: (it.category || "").trim()
+    });
+    added++;
+  }
+  save(); renderAll();
+  let msg = "Добавлено: " + added;
+  if (skipped) msg += ", пропущено (номер занят): " + skipped;
+  if (S.athletes.length >= MAX_ATHLETES) msg += ". Достигнут лимит " + MAX_ATHLETES;
+  toast(msg);
+}
+
+/* ============ рендер: настройки ============ */
+function renderSetup() {
+  if (document.activeElement !== $("setName")) $("setName").value = S.race.name || "";
+  if (document.activeElement !== $("setInterval")) $("setInterval").value = S.race.interval;
+  Array.from($("modeSeg").children).forEach(b => b.classList.toggle("on", b.dataset.v === S.race.mode));
+  $("intervalField").hidden = S.race.mode !== "interval";
+
+  $("cpList").innerHTML = '<div class="lst">' + S.checkpoints.map((c, i) =>
+    '<div class="it">' +
+      '<span class="pl-badge">' + (i + 1) + '</span>' +
+      '<input type="text" data-cp="' + i + '" value="' + esc(c) + '" style="flex:1;padding:9px">' +
+      (S.checkpoints.length > 1
+        ? '<button class="btn sm danger" data-act="delcp" data-v="' + i + '">✕</button>'
+        : '') +
+    '</div>').join("") + '</div>';
+
+  $("athCount").textContent = S.athletes.length + " из " + MAX_ATHLETES;
+  const list = sortedByBib();
+  $("athList").innerHTML = list.length
+    ? '<div class="lst">' + list.map(a =>
+        '<div class="it">' +
+          '<span class="bib-badge">' + esc(a.bib) + '</span>' +
+          '<span class="nm-cell">' + esc(a.name || "—") +
+            (a.category ? ' <span class="hint">· ' + esc(a.category) + "</span>" : "") + '</span>' +
+          '<button class="btn sm danger" data-act="delath" data-v="' + a.id + '">✕</button>' +
+        '</div>').join("") + '</div>'
+    : '<div class="empty">Список участников пуст.</div>';
+}
+
+/* ============ вкладки и общий рендер ============ */
+function setTab(t) {
+  S.ui.tab = t;
+  ["timing", "results", "setup"].forEach(k => { $("tab-" + k).hidden = (k !== t); });
+  Array.from($("nav").children).forEach(b => b.classList.toggle("on", b.dataset.v === t));
+  window.scrollTo(0, 0);
+  save(); renderAll();
+}
+function renderAll() {
+  clampCps();
+  renderHead();
+  if (S.ui.tab === "timing") renderTiming();
+  else if (S.ui.tab === "results") renderResults();
+  else renderSetup();
+  tickClock();
+}
+
+/* ============ события ============ */
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act, v = el.dataset.v;
+
+  switch (act) {
+    case "tab": setTab(v); break;
+    case "start": giveStart(); break;
+    case "resetAsk": confirmReset = true; renderHead(); break;
+    case "resetNo": confirmReset = false; renderHead(); break;
+    case "resetYes": resetRace(); break;
+    case "cp": S.currentCp = +v; S.last = null; save(); renderTiming(); break;
+    case "punch": punch(v); break;
+    case "unpunch": e.stopPropagation(); unpunch(v); break;
+    case "rescp": S.ui.resCp = +v; save(); renderResults(); break;
+    case "resmode": S.ui.resMode = v; save(); renderResults(); break;
+    case "export": exportCSV(); break;
+    case "mode": S.race.mode = v; save(); renderAll(); break;
+
+    case "addcp": {
+      // новая точка встаёт перед финишем — уже записанные времена сдвигаем
+      const at = S.checkpoints.length - 1;
+      S.checkpoints.splice(at, 0, "Отсечка " + S.checkpoints.length);
+      for (const id in S.records) {
+        const r = S.records[id], nr = {};
+        Object.keys(r).map(Number).forEach(k => { nr[k >= at ? k + 1 : k] = r[k]; });
+        S.records[id] = nr;
+      }
+      S.last = null;
+      save(); renderAll(); break;
+    }
+
+    case "delcp": {
+      const i = +v;
+      if (S.checkpoints.length <= 1) break;
+      S.checkpoints.splice(i, 1);
+      // сдвигаем отсечки в записях
+      for (const id in S.records) {
+        const r = S.records[id], nr = {};
+        Object.keys(r).map(Number).forEach(k => {
+          if (k < i) nr[k] = r[k];
+          else if (k > i) nr[k - 1] = r[k];
+        });
+        if (Object.keys(nr).length) S.records[id] = nr; else delete S.records[id];
+      }
+      S.last = null;
+      save(); renderAll(); break;
+    }
+
+    case "gen": {
+      const n = parseInt($("genN").value, 10);
+      if (!n || n < 1) { toast("Укажите количество"); break; }
+      const list = [];
+      for (let i = 1; i <= Math.min(n, MAX_ATHLETES); i++) list.push({ bib: String(i), name: "", category: "" });
+      addAthletes(list);
+      $("genN").value = "";
+      break;
+    }
+
+    case "delath":
+      S.athletes = S.athletes.filter(a => a.id !== v);
+      delete S.records[v];
+      if (S.last && S.last.id === v) S.last = null;
+      save(); renderAll(); break;
+
+    case "clearAth":
+      if (el.dataset.armed) {
+        S.athletes = []; S.records = {}; S.last = null;
+        save(); renderAll(); toast("Список очищен");
+      } else {
+        el.dataset.armed = "1";
+        el.textContent = "Точно очистить?";
+        el.classList.add("solid-danger");
+        setTimeout(() => { if (el.isConnected) renderSetup(); }, 4000);
+      }
+      break;
+
+    case "pickFile": $("fileInput").click(); break;
+
+    case "parsePaste": {
+      const txt = $("pasteArea").value;
+      if (!txt.trim()) { toast("Вставьте текст"); break; }
+      addAthletes(parseRows(rowsFromText(txt)));
+      $("pasteArea").value = "";
+      break;
+    }
+  }
+});
+
+// ручной ввод номера
+$("manualForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const raw = $("manualBib").value.trim();
+  if (!raw) return;
+  const a = S.athletes.find(x => String(x.bib) === String(parseInt(raw, 10)));
+  if (!a) { toast("Номер " + raw + " не найден"); return; }
+  punch(a.id);
+  $("manualBib").value = "";
+  $("manualBib").focus();
+});
+
+// добавление участника вручную
+$("addForm").addEventListener("submit", e => {
+  e.preventDefault();
+  addAthletes([{ bib: $("addBib").value, name: $("addName").value, category: $("addCat").value }]);
+  $("addBib").value = ""; $("addName").value = ""; $("addCat").value = "";
+});
+
+// поля настроек
+$("setName").addEventListener("input", e => { S.race.name = e.target.value; renderHead(); save(); });
+$("setInterval").addEventListener("input", e => {
+  const n = parseInt(e.target.value, 10);
+  S.race.interval = (!isNaN(n) && n > 0) ? n : 30;
+  save();
+});
+// переименование отсечек
+$("cpList").addEventListener("input", e => {
+  const i = e.target.dataset.cp;
+  if (i == null) return;
+  S.checkpoints[+i] = e.target.value;
+  save();
+});
+
+// импорт файла
+$("fileInput").addEventListener("change", async e => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  try {
+    if (/\.xlsx?$/i.test(f.name)) {
+      await ensureXLSX();
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+      addAthletes(parseRows(rows));
+    } else {
+      const text = await f.text();
+      addAthletes(parseRows(rowsFromText(text)));
+    }
+  } catch (err) {
+    console.error(err);
+    toast(/xlsx?$/i.test(f.name) && !window.XLSX
+      ? "Для Excel нужен интернет. Сохраните файл как CSV."
+      : "Не удалось прочитать файл");
+  }
+});
+
+function ensureXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+/* не даём экрану гаснуть во время гонки */
+let wakeLock = null;
+async function requestWakeLock() {
+  try {
+    if ("wakeLock" in navigator && !wakeLock && S.race.t0 != null) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") { requestWakeLock(); renderAll(); }
+});
+
+/* ============ старт ============ */
+load();
+setTab(S.ui.tab || "timing");
+setInterval(tickClock, 100);
+// «на трассе» зависит от текущего времени — обновляем только в протоколе,
+// чтобы не перерисовывать сетку номеров под пальцем во время отсечки
+setInterval(() => { if (S.race.t0 != null && S.ui.tab === "results") renderResults(); }, 15000);
+requestWakeLock();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
