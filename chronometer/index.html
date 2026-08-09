@@ -198,7 +198,8 @@ th.col-active{color:var(--cyan)}
       </div>
     </div>
     <div id="resultsBody"></div>
-    <button class="btn wide" data-act="export">Экспорт протокола (CSV)</button>
+    <button class="btn wide" data-act="export" style="margin-bottom:10px">Экспорт протокола (CSV)</button>
+    <div id="finishBox"></div>
   </section>
 
   <!-- НАСТРОЙКИ -->
@@ -210,11 +211,13 @@ th.col-active{color:var(--cyan)}
         <input type="text" id="setName" placeholder="Название гонки">
       </div>
       <div class="field">
-        <label class="f">Режим старта</label>
+        <label class="f">Как считать время</label>
         <div class="seg" id="modeSeg">
-          <button data-act="mode" data-v="mass">Общий</button>
+          <button data-act="mode" data-v="relative">По первому</button>
+          <button data-act="mode" data-v="mass">Общий старт</button>
           <button data-act="mode" data-v="interval">Раздельный</button>
         </div>
+        <div class="hint" id="modeHint" style="margin-top:8px"></div>
       </div>
       <div class="field" id="intervalField" style="margin-bottom:0">
         <label class="f" for="setInterval">Интервал между стартами, сек</label>
@@ -277,7 +280,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.1</span>
+        Версия <span id="appVer">3.2</span>
       </div>
     </div>
   </section>
@@ -323,7 +326,7 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
 
 /* ============ состояние ============ */
 let S = {
-  race: { name: "Гонка", mode: "interval", t0: null, interval: 30 },
+  race: { name: "Гонка", mode: "relative", t0: null, interval: 30 },
   checkpoints: ["Отсечка", "Финиш"],
   athletes: [],
   records: {},
@@ -338,7 +341,7 @@ let seq = 0;
 let ARCH = { races: [], currentId: null, ui: null };
 
 const defaultRaceData = () => ({
-  race: { name: "Гонка", mode: "interval", t0: null, interval: 30 },
+  race: { name: "Гонка", mode: "relative", t0: null, interval: 30 },
   checkpoints: ["Отсечка", "Финиш"],
   athletes: [],
   records: {},
@@ -354,7 +357,7 @@ function makeRace(name) {
 /** Приводит данные гонки к рабочему состоянию S. */
 function applyRace(entry) {
   const d = entry.data || defaultRaceData();
-  S.race = Object.assign({ name: entry.name, mode: "interval", t0: null, interval: 30 }, d.race || {});
+  S.race = Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30 }, d.race || {});
   S.race.name = entry.name || S.race.name;
   S.checkpoints = (Array.isArray(d.checkpoints) && d.checkpoints.length) ? d.checkpoints : ["Финиш"];
   S.athletes = Array.isArray(d.athletes) ? d.athletes : [];
@@ -386,7 +389,7 @@ function load() {
         const d = JSON.parse(rawOld);
         const entry = makeRace((d.race && d.race.name) || "Гонка");
         entry.data = {
-          race: Object.assign({ name: entry.name, mode: "interval", t0: null, interval: 30 }, d.race || {}),
+          race: Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30 }, d.race || {}),
           checkpoints: d.checkpoints, athletes: d.athletes, records: d.records, currentCp: d.currentCp | 0
         };
         entry.name = entry.data.race.name;
@@ -478,15 +481,35 @@ function orderIndexMap() {
   sortedByBib().forEach((a, i) => { m[a.id] = i; });
   return m;
 }
-function startBasis(a, oi) {
+/** Момент первой отсечки на точке — точка отсчёта в режиме «по первому». */
+function firstPunchAt(cp) {
+  let min = null;
+  for (const id in S.records) {
+    const t = S.records[id][cp];
+    if (t != null && (min == null || t < min)) min = t;
+  }
+  return min;
+}
+
+/**
+ * От какого момента считать время спортсмена на точке cp.
+ * relative — от первого прошедшего эту точку (судья стоит на дистанции,
+ *            общего старта нет, важны отставания друг от друга);
+ * mass     — от общего старта;
+ * interval — от расчётного времени старта по порядку номеров.
+ */
+function startBasis(a, oi, cp) {
+  if (S.race.mode === "relative") return firstPunchAt(cp);
   if (S.race.t0 == null) return null;
   if (S.race.mode === "mass") return S.race.t0;
   return S.race.t0 + (oi[a.id] || 0) * S.race.interval * 1000;
 }
+
 function elapsedAt(a, cp, oi) {
   const r = S.records[a.id];
-  if (!r || r[cp] == null || S.race.t0 == null) return null;
-  return r[cp] - startBasis(a, oi);
+  if (!r || r[cp] == null) return null;
+  const basis = startBasis(a, oi, cp);
+  return basis == null ? null : r[cp] - basis;
 }
 function passedCount(a) {
   const r = S.records[a.id];
@@ -528,7 +551,8 @@ function ranking(cp, subset) {
   });
   const now = Date.now();
   for (const a of rest) {
-    const started = S.race.t0 != null && now >= startBasis(a, oi);
+    const basis = startBasis(a, oi, cp);
+    const started = basis != null && now >= basis;
     rows.push({
       a, time: null, place: null, gap: null,
       status: (started || passedCount(a) > 0) ? "course" : "none"
@@ -547,10 +571,8 @@ function fmt(ms) {
   const p = n => String(n).padStart(2, "0");
   return (neg ? "−" : "") + (h > 0 ? h + ":" + p(m) + ":" + p(s) + "." + d : m + ":" + p(s) + "." + d);
 }
-/** Время в ячейке; отрицательное (отсечка раньше своего старта) — красным. */
 function timeCell(ms) {
-  if (ms == null) return '<span class="st-none">—</span>';
-  return ms < 0 ? '<span class="t-neg">' + fmt(ms) + "</span>" : fmt(ms);
+  return ms == null ? '<span class="st-none">—</span>' : fmt(ms);
 }
 function fmtGap(ms) {
   if (ms == null) return "—";
@@ -590,15 +612,12 @@ function resetRace() {
   toast("Гонка сброшена");
 }
 function punch(id) {
-  if (S.race.t0 == null) { toast("Сначала дайте старт"); return; }
+  // в режиме «по первому» старт не нужен: отсчёт задаёт первая же отсечка
+  if (S.race.mode !== "relative" && S.race.t0 == null) { toast("Сначала дайте старт"); return; }
   const r = S.records[id] || (S.records[id] = {});
   if (r[S.currentCp] != null) { toast("Уже отсечён на этой точке"); return; }
-  const a = S.athletes.find(x => x.id === id);
-  const basis = a ? startBasis(a, orderIndexMap()) : null;
-  if (basis != null && Date.now() < basis) {
-    toast("№" + a.bib + " ещё не стартовал — проверьте номер");
-  }
   r[S.currentCp] = Date.now();
+  if (S.race.t0 == null) S.race.t0 = r[S.currentCp];   // для часов в шапке
   S.last = { id: id, cp: S.currentCp };
   vibrate(35);
   save(); renderTiming();
@@ -615,14 +634,19 @@ function unpunch(id) {
 
 /* ============ рендер: шапка ============ */
 function renderHead() {
-  $("hRace").textContent = S.race.name || "Гонка";
+  const entry = currentEntry();
+  $("hRace").textContent = (S.race.name || "Гонка") +
+    (entry && entry.finished ? " · завершена" : "");
   const started = S.race.t0 != null;
+  const relative = S.race.mode === "relative";
   const clock = $("hClock");
   clock.classList.toggle("idle", !started);
-  if (!started) clock.textContent = "готов к старту";
+  if (!started) clock.textContent = relative ? "жду первую отсечку" : "готов к старту";
 
   const act = $("hActions");
-  if (!started) {
+  if (!started && relative) {
+    act.innerHTML = "";
+  } else if (!started) {
     act.innerHTML = '<button class="btn primary" data-act="start">Дать старт</button>';
   } else if (confirmReset) {
     act.innerHTML =
@@ -741,6 +765,16 @@ function renderResults() {
     (i === S.ui.resCp ? ' class="on"' : '') + '>' + esc(c) + '</button>').join("");
   Array.from($("resModeSeg").children).forEach(b =>
     b.classList.toggle("on", b.dataset.v === S.ui.resMode));
+
+  const entry = currentEntry();
+  $("finishBox").innerHTML = entry && entry.finished
+    ? '<div class="card" style="border-color:var(--emerald);margin-bottom:0">' +
+        '<div class="hint" style="color:#6ee7b7">Гонка завершена ' +
+        new Date(entry.finished).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) +
+        '. Протокол сохранён — он всегда доступен во вкладке «Гонки».</div>' +
+        '<button class="btn sm wide" data-act="unfinish" style="margin-top:10px">Продолжить гонку</button>' +
+      '</div>'
+    : '<button class="btn wide primary" data-act="finish">Завершить и сохранить гонку</button>';
 
   if (!S.athletes.length) {
     $("resultsBody").innerHTML = '<div class="card"><div class="empty">Нет участников.</div></div>';
@@ -959,6 +993,14 @@ function renderSetup() {
   if (document.activeElement !== $("setInterval")) $("setInterval").value = S.race.interval;
   Array.from($("modeSeg").children).forEach(b => b.classList.toggle("on", b.dataset.v === S.race.mode));
   $("intervalField").hidden = S.race.mode !== "interval";
+  $("modeHint").textContent = {
+    relative: "Судья стоит на дистанции, общего старта нет. Отсчёт идёт от первого прошедшего точку: " +
+              "он — лидер, остальные показываются с отставанием от него. Кнопка «Дать старт» не нужна, " +
+              "время пойдёт с первой отсечки.",
+    mass: "Все уходят одновременно. Нажмите «Дать старт» в момент старта — время каждого считается от него.",
+    interval: "Спортсмены уходят по порядку номеров через равный интервал. «Дать старт» — в момент ухода " +
+              "первого номера, дальше время старта каждого приложение считает само."
+  }[S.race.mode] || "";
 
   $("cpList").innerHTML = '<div class="lst">' + S.checkpoints.map((c, i) =>
     '<div class="it">' +
@@ -1002,14 +1044,16 @@ function renderRaces() {
 
     const info = ath.length
       ? ath.length + " " + plural(ath.length, "участник", "участника", "участников") +
-        (started ? " · финишировали " + finished : " · не стартовала")
+        (r.finished ? " · завершена" : started ? " · идёт, финишировали " + finished : " · не начиналась")
       : "участников нет";
 
     return '<div class="it"' + (isCur ? ' style="background:#12203b"' : '') + '>' +
       '<div class="nm-cell" data-act="openrace" data-v="' + r.id + '" ' +
            'style="cursor:pointer;white-space:normal;padding:4px 0">' +
         '<div style="font-weight:600">' + esc(r.name) +
-          (isCur ? ' <span class="chip" style="font-size:11px">текущая</span>' : '') + '</div>' +
+          (isCur ? ' <span class="chip" style="font-size:11px">текущая</span>' : '') +
+          (r.finished ? ' <span class="chip" style="font-size:11px;color:#6ee7b7;border-color:#065f46">✓</span>' : '') +
+          '</div>' +
         '<div class="hint">' + fmtDate(raceDate(r)) + ' · ' + info + '</div>' +
       '</div>' +
       '<button class="btn sm danger" data-act="delrace" data-v="' + r.id + '">✕</button>' +
@@ -1121,6 +1165,23 @@ document.addEventListener("click", e => {
       break;
 
     case "pickFile": $("fileInput").click(); break;
+
+    case "finish": {
+      const entry = currentEntry();
+      if (!entry) break;
+      entry.finished = Date.now();
+      save(); setTab("races");
+      toast("Гонка «" + entry.name + "» сохранена");
+      break;
+    }
+
+    case "unfinish": {
+      const entry = currentEntry();
+      if (!entry) break;
+      delete entry.finished;
+      save(); renderAll();
+      break;
+    }
 
     case "openrace": openRace(v); break;
 
