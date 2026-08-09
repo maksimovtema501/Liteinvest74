@@ -180,6 +180,8 @@ th.col-active{color:var(--cyan)}
       <h2 id="liveTitle">Рейтинг</h2>
       <div id="liveRank"></div>
     </div>
+
+    <div id="finishBoxTiming"></div>
   </section>
 
   <!-- ПРОТОКОЛ -->
@@ -280,7 +282,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.3</span>
+        Версия <span id="appVer">3.4</span>
       </div>
     </div>
   </section>
@@ -335,6 +337,7 @@ let S = {
   last: null
 };
 let confirmReset = false;
+let confirmFinish = false;
 let seq = 0;
 
 /* Архив: все гонки. S — рабочая копия текущей, она же зеркалится в архив при save(). */
@@ -440,14 +443,16 @@ function newRace(name) {
 
 /** Открыть сохранённую гонку. */
 function openRace(id) {
-  if (id === ARCH.currentId) { setTab("timing"); return; }
-  save();
   const entry = ARCH.races.find(r => r.id === id);
   if (!entry) return;
+  // завершённую открываем сразу на протоколе — смотреть её больше незачем
+  const tab = entry.finished ? "results" : "timing";
+  if (id === ARCH.currentId) { setTab(tab); return; }
+  save();
   ARCH.currentId = id;
   applyRace(entry);
   save();
-  setTab("timing");
+  setTab(tab);
   toast("Открыта гонка «" + entry.name + "»");
 }
 
@@ -631,6 +636,11 @@ function resetRace() {
   toast("Гонка сброшена");
 }
 function punch(id) {
+  const entry = currentEntry();
+  if (entry && entry.finished) {
+    toast("Гонка завершена — нажмите «Продолжить гонку»");
+    return;
+  }
   // в режиме «по первому» старт не нужен: отсчёт задаёт первая же отсечка
   if (S.race.mode !== "relative" && S.race.t0 == null) { toast("Сначала дайте старт"); return; }
   const r = S.records[id] || (S.records[id] = {});
@@ -682,7 +692,10 @@ function renderHead() {
 }
 function tickClock() {
   if (S.race.t0 == null) return;
-  $("hClock").textContent = fmt(Date.now() - S.race.t0);
+  // у завершённой гонки секундомер стоит на времени финиша
+  const entry = currentEntry();
+  const end = (entry && entry.finished) ? entry.finished : Date.now();
+  $("hClock").textContent = fmt(end - S.race.t0);
 }
 
 /* ============ рендер: хронометраж ============ */
@@ -752,6 +765,8 @@ function renderTiming() {
       }).join("")
     : '<div class="empty">Нет участников.<br>Добавьте их в «Настройках».</div>';
 
+  $("finishBoxTiming").innerHTML = finishBoxHTML();
+
   // живой рейтинг
   const done = rows.filter(r => r.status === "done");
   $("liveTitle").textContent = "Рейтинг · " + esc(cps[S.currentCp] || "");
@@ -766,6 +781,27 @@ function renderTiming() {
             (r.place === 1 ? "лидер" : fmtGap(r.gap)) + '</span>' +
         '</div>').join("") + '</div>'
     : '<div class="empty">Пока никто не отсечён на этой точке.</div>';
+}
+
+/** Блок завершения гонки — одинаковый на хронометраже и в протоколе. */
+function finishBoxHTML() {
+  const entry = currentEntry();
+  if (entry && entry.finished) {
+    const when = new Date(entry.finished).toLocaleString("ru-RU",
+      { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    return '<div class="card" style="border-color:var(--emerald);margin-bottom:0">' +
+      '<div class="hint" style="color:#6ee7b7">Гонка завершена ' + when +
+      '. Протокол сохранён — гонку всегда можно открыть во вкладке «Гонки».</div>' +
+      '<button class="btn sm wide" data-act="unfinish" style="margin-top:10px">Продолжить гонку</button>' +
+    '</div>';
+  }
+  if (confirmFinish) {
+    return '<div class="row">' +
+      '<button class="btn primary" data-act="finish" style="flex:1">Да, завершить</button>' +
+      '<button class="btn" data-act="finishNo">Отмена</button>' +
+    '</div>';
+  }
+  return '<button class="btn wide primary" data-act="finishAsk">Завершить и сохранить гонку</button>';
 }
 
 /* ============ рендер: протокол ============ */
@@ -790,15 +826,7 @@ function renderResults() {
   Array.from($("resModeSeg").children).forEach(b =>
     b.classList.toggle("on", b.dataset.v === S.ui.resMode));
 
-  const entry = currentEntry();
-  $("finishBox").innerHTML = entry && entry.finished
-    ? '<div class="card" style="border-color:var(--emerald);margin-bottom:0">' +
-        '<div class="hint" style="color:#6ee7b7">Гонка завершена ' +
-        new Date(entry.finished).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }) +
-        '. Протокол сохранён — он всегда доступен во вкладке «Гонки».</div>' +
-        '<button class="btn sm wide" data-act="unfinish" style="margin-top:10px">Продолжить гонку</button>' +
-      '</div>'
-    : '<button class="btn wide primary" data-act="finish">Завершить и сохранить гонку</button>';
+  $("finishBox").innerHTML = finishBoxHTML();
 
   if (!S.athletes.length) {
     $("resultsBody").innerHTML = '<div class="card"><div class="empty">Нет участников.</div></div>';
@@ -1190,11 +1218,16 @@ document.addEventListener("click", e => {
 
     case "pickFile": $("fileInput").click(); break;
 
+    case "finishAsk": confirmFinish = true; renderAll(); break;
+    case "finishNo": confirmFinish = false; renderAll(); break;
+
     case "finish": {
       const entry = currentEntry();
       if (!entry) break;
       entry.finished = Date.now();
-      save(); setTab("races");
+      confirmFinish = false;
+      save();
+      setTab("results");            // сразу показываем итоговый протокол
       toast("Гонка «" + entry.name + "» сохранена");
       break;
     }
@@ -1203,6 +1236,7 @@ document.addEventListener("click", e => {
       const entry = currentEntry();
       if (!entry) break;
       delete entry.finished;
+      confirmFinish = false;
       save(); renderAll();
       break;
     }
