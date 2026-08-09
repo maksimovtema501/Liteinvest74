@@ -197,9 +197,9 @@ th.col-active{color:var(--cyan)}
         </div>
       </div>
     </div>
+    <div id="finishBox" style="margin-bottom:14px"></div>
     <div id="resultsBody"></div>
-    <button class="btn wide" data-act="export" style="margin-bottom:10px">Экспорт протокола (CSV)</button>
-    <div id="finishBox"></div>
+    <button class="btn wide" data-act="export">Экспорт протокола (CSV)</button>
   </section>
 
   <!-- НАСТРОЙКИ -->
@@ -222,7 +222,7 @@ th.col-active{color:var(--cyan)}
       <div class="field" id="intervalField" style="margin-bottom:0">
         <label class="f" for="setInterval">Интервал между стартами, сек</label>
         <input type="number" id="setInterval" min="1" max="600" inputmode="numeric">
-        <div class="hint" style="margin-top:6px">Старт даётся в момент ухода первого номера. Дальше время старта каждого считается по порядку номеров.</div>
+        <div class="hint" style="margin-top:6px">Сколько секунд между уходами соседних номеров. Порядок старта — по возрастанию номеров.</div>
       </div>
     </div>
 
@@ -280,7 +280,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.2</span>
+        Версия <span id="appVer">3.3</span>
       </div>
     </div>
   </section>
@@ -356,6 +356,7 @@ function makeRace(name) {
 
 /** Приводит данные гонки к рабочему состоянию S. */
 function applyRace(entry) {
+  invalidateBase();
   const d = entry.data || defaultRaceData();
   S.race = Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30 }, d.race || {});
   S.race.name = entry.name || S.race.name;
@@ -412,6 +413,7 @@ function load() {
 }
 
 function save() {
+  invalidateBase();
   const entry = currentEntry();
   if (entry) {
     entry.name = S.race.name;
@@ -481,25 +483,42 @@ function orderIndexMap() {
   sortedByBib().forEach((a, i) => { m[a.id] = i; });
   return m;
 }
-/** Момент первой отсечки на точке — точка отсчёта в режиме «по первому». */
-function firstPunchAt(cp) {
+/**
+ * Режим «по первому»: время старта неизвестно, его восстанавливаем по отсечкам.
+ * У каждого вычитаем его интервал старта (номер × интервал) — получаем времена
+ * в общей системе координат. Начало отсчёта выбираем так, чтобы у лучшего на
+ * точке вышло ровно 0:00.0, поэтому отрицательных времён не бывает.
+ * Считается на каждой отсечке отдельно, результат кэшируется до правки данных.
+ */
+let baseCache = {};
+function invalidateBase() { baseCache = {}; }
+
+function bestCorrected(cp, oi) {
+  if (cp in baseCache) return baseCache[cp];
+  const step = S.race.mode === "relative" ? S.race.interval * 1000 : 0;
   let min = null;
-  for (const id in S.records) {
-    const t = S.records[id][cp];
-    if (t != null && (min == null || t < min)) min = t;
+  for (const a of S.athletes) {
+    const r = S.records[a.id];
+    if (!r || r[cp] == null) continue;
+    const c = r[cp] - (oi[a.id] || 0) * step;
+    if (min == null || c < min) min = c;
   }
+  baseCache[cp] = min;
   return min;
 }
 
 /**
  * От какого момента считать время спортсмена на точке cp.
- * relative — от первого прошедшего эту точку (судья стоит на дистанции,
- *            общего старта нет, важны отставания друг от друга);
+ * relative — раздельный старт, но отсчёт от первого прошедшего точку:
+ *            судья стоит на дистанции и момента старта не видит;
  * mass     — от общего старта;
  * interval — от расчётного времени старта по порядку номеров.
  */
 function startBasis(a, oi, cp) {
-  if (S.race.mode === "relative") return firstPunchAt(cp);
+  if (S.race.mode === "relative") {
+    const base = bestCorrected(cp, oi);
+    return base == null ? null : base + (oi[a.id] || 0) * S.race.interval * 1000;
+  }
   if (S.race.t0 == null) return null;
   if (S.race.mode === "mass") return S.race.t0;
   return S.race.t0 + (oi[a.id] || 0) * S.race.interval * 1000;
@@ -644,8 +663,13 @@ function renderHead() {
   if (!started) clock.textContent = relative ? "жду первую отсечку" : "готов к старту";
 
   const act = $("hActions");
-  if (!started && relative) {
-    act.innerHTML = "";
+  if (confirmReset) {
+    act.innerHTML =
+      '<button class="btn sm solid-danger" data-act="resetYes">Сбросить</button>' +
+      '<button class="btn sm" data-act="resetNo">Отмена</button>';
+  } else if (relative) {
+    // старт давать не нужно, но сброс должен быть всегда под рукой
+    act.innerHTML = '<button class="btn sm danger" data-act="resetAsk">Сброс</button>';
   } else if (!started) {
     act.innerHTML = '<button class="btn primary" data-act="start">Дать старт</button>';
   } else if (confirmReset) {
@@ -992,14 +1016,14 @@ function renderSetup() {
   if (document.activeElement !== $("setName")) $("setName").value = S.race.name || "";
   if (document.activeElement !== $("setInterval")) $("setInterval").value = S.race.interval;
   Array.from($("modeSeg").children).forEach(b => b.classList.toggle("on", b.dataset.v === S.race.mode));
-  $("intervalField").hidden = S.race.mode !== "interval";
+  $("intervalField").hidden = (S.race.mode !== "interval" && S.race.mode !== "relative");
   $("modeHint").textContent = {
-    relative: "Судья стоит на дистанции, общего старта нет. Отсчёт идёт от первого прошедшего точку: " +
-              "он — лидер, остальные показываются с отставанием от него. Кнопка «Дать старт» не нужна, " +
-              "время пойдёт с первой отсечки.",
+    relative: "Раздельный старт, но судья стоит на дистанции и момента старта не видит. " +
+              "Отсчёт идёт от первого прошедшего точку, интервал старта у каждого номера " +
+              "приложение вычитает само. «Дать старт» не нужно — время пойдёт с первой отсечки.",
     mass: "Все уходят одновременно. Нажмите «Дать старт» в момент старта — время каждого считается от него.",
-    interval: "Спортсмены уходят по порядку номеров через равный интервал. «Дать старт» — в момент ухода " +
-              "первого номера, дальше время старта каждого приложение считает само."
+    interval: "Раздельный старт, судья на старте. «Дать старт» — в момент ухода первого номера, " +
+              "дальше время старта каждого приложение считает само."
   }[S.race.mode] || "";
 
   $("cpList").innerHTML = '<div class="lst">' + S.checkpoints.map((c, i) =>
