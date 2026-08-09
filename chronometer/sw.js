@@ -1,7 +1,7 @@
 /* Service worker «Хронометра».
    Приложение обязано работать без сети (лес, мороз, нет связи),
    поэтому оболочка кэшируется целиком и отдаётся из кэша. */
-const CACHE = "hronometr-v1";
+const CACHE = "hronometr-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -27,11 +27,19 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
 
-  // навигация: сначала кэш оболочки, сеть — только чтобы обновиться
+  // Навигация: мгновенно отдаём кэш, параллельно тянем свежую версию и кладём
+  // в кэш — следующий запуск покажет обновление. Без этого установленное
+  // приложение осталось бы на старой версии навсегда.
   if (req.mode === "navigate") {
     e.respondWith(
-      caches.match("./index.html").then(hit =>
-        hit || fetch(req).catch(() => caches.match("./")))
+      caches.match("./index.html").then(hit => {
+        const fresh = fetch("./index.html", { cache: "no-cache" }).then(res => {
+          if (res && res.ok) caches.open(CACHE).then(c => c.put("./index.html", res.clone()));
+          return res;
+        });
+        if (hit) { e.waitUntil(fresh.catch(() => {})); return hit; }
+        return fresh.catch(() => caches.match("./"));
+      })
     );
     return;
   }

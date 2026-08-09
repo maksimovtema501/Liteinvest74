@@ -277,8 +277,28 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.0</span>
+        Версия <span id="appVer">3.1</span>
       </div>
+    </div>
+  </section>
+
+  <!-- ГОНКИ -->
+  <section id="tab-races" hidden>
+    <div class="card">
+      <h2>Новая гонка</h2>
+      <form class="row" id="newRaceForm">
+        <input type="text" id="newRaceName" placeholder="Название гонки" style="flex:1" autocomplete="off">
+        <button class="btn primary" type="submit">Создать</button>
+      </form>
+      <div class="hint" style="margin-top:8px">
+        Текущая гонка сохранится целиком — со всеми отсечками и протоколом.
+        Открыть её снова можно в любой момент.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Сохранённые гонки</h2>
+      <div id="raceList"></div>
     </div>
   </section>
 </main>
@@ -286,6 +306,7 @@ th.col-active{color:var(--cyan)}
 <nav id="nav">
   <button data-act="tab" data-v="timing"><span class="ico">⏱</span>Хронометраж</button>
   <button data-act="tab" data-v="results"><span class="ico">🏁</span>Протокол</button>
+  <button data-act="tab" data-v="races"><span class="ico">📋</span>Гонки</button>
   <button data-act="tab" data-v="setup"><span class="ico">⚙️</span>Настройки</button>
 </nav>
 
@@ -293,7 +314,8 @@ th.col-active{color:var(--cyan)}
 
 <script>
 "use strict";
-const KEY = "ski-timer-v3";
+const KEY = "ski-timer-v3";          // старый формат: одна гонка
+const KEY_ARCH = "ski-timer-races-v1"; // архив гонок
 const MAX_ATHLETES = 150;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
@@ -312,24 +334,131 @@ let S = {
 let confirmReset = false;
 let seq = 0;
 
+/* Архив: все гонки. S — рабочая копия текущей, она же зеркалится в архив при save(). */
+let ARCH = { races: [], currentId: null, ui: null };
+
+const defaultRaceData = () => ({
+  race: { name: "Гонка", mode: "interval", t0: null, interval: 30 },
+  checkpoints: ["Отсечка", "Финиш"],
+  athletes: [],
+  records: {},
+  currentCp: 0
+});
+
+function makeRace(name) {
+  const d = defaultRaceData();
+  d.race.name = name || ("Гонка " + new Date().toLocaleDateString("ru-RU"));
+  return { id: "r" + Date.now() + Math.floor(Math.random() * 1000), name: d.race.name, created: Date.now(), data: d };
+}
+
+/** Приводит данные гонки к рабочему состоянию S. */
+function applyRace(entry) {
+  const d = entry.data || defaultRaceData();
+  S.race = Object.assign({ name: entry.name, mode: "interval", t0: null, interval: 30 }, d.race || {});
+  S.race.name = entry.name || S.race.name;
+  S.checkpoints = (Array.isArray(d.checkpoints) && d.checkpoints.length) ? d.checkpoints : ["Финиш"];
+  S.athletes = Array.isArray(d.athletes) ? d.athletes : [];
+  S.records = (d.records && typeof d.records === "object") ? d.records : {};
+  S.currentCp = d.currentCp | 0;
+  S.last = null;
+  confirmReset = false;
+  S.athletes.forEach(a => { const n = parseInt(String(a.id).replace(/\D/g, ""), 10); if (n > seq) seq = n; });
+  clampCps();
+}
+
+function currentEntry() {
+  return ARCH.races.find(r => r.id === ARCH.currentId) || null;
+}
+
 function load() {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return;
-    const d = JSON.parse(raw);
-    S = Object.assign(S, d);
-    S.race = Object.assign({ name: "Гонка", mode: "interval", t0: null, interval: 30 }, d.race || {});
-    S.ui = Object.assign({ tab: "timing", resCp: 0, resMode: "all" }, d.ui || {});
-    if (!Array.isArray(S.checkpoints) || !S.checkpoints.length) S.checkpoints = ["Финиш"];
-    if (!Array.isArray(S.athletes)) S.athletes = [];
-    if (!S.records || typeof S.records !== "object") S.records = {};
-    S.athletes.forEach(a => { const n = parseInt(String(a.id).replace(/\D/g, ""), 10); if (n > seq) seq = n; });
-    clampCps();
-  } catch (e) { console.warn("load failed", e); }
+    const rawArch = localStorage.getItem(KEY_ARCH);
+    if (rawArch) {
+      const a = JSON.parse(rawArch);
+      if (a && Array.isArray(a.races) && a.races.length) {
+        ARCH = { races: a.races, currentId: a.currentId, ui: a.ui || null };
+      }
+    }
+    if (!ARCH.races.length) {
+      // перенос старого формата: единственная сохранённая гонка становится первой в архиве
+      const rawOld = localStorage.getItem(KEY);
+      if (rawOld) {
+        const d = JSON.parse(rawOld);
+        const entry = makeRace((d.race && d.race.name) || "Гонка");
+        entry.data = {
+          race: Object.assign({ name: entry.name, mode: "interval", t0: null, interval: 30 }, d.race || {}),
+          checkpoints: d.checkpoints, athletes: d.athletes, records: d.records, currentCp: d.currentCp | 0
+        };
+        entry.name = entry.data.race.name;
+        ARCH.races.push(entry);
+        ARCH.ui = d.ui || null;
+      } else {
+        ARCH.races.push(makeRace());
+      }
+      ARCH.currentId = ARCH.races[0].id;
+    }
+    if (!currentEntry()) ARCH.currentId = ARCH.races[0].id;
+    S.ui = Object.assign({ tab: "timing", resCp: 0, resMode: "all" }, ARCH.ui || {});
+    applyRace(currentEntry());
+  } catch (e) {
+    console.warn("load failed", e);
+    ARCH = { races: [makeRace()], currentId: null, ui: null };
+    ARCH.currentId = ARCH.races[0].id;
+    applyRace(ARCH.races[0]);
+  }
 }
+
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); }
+  const entry = currentEntry();
+  if (entry) {
+    entry.name = S.race.name;
+    entry.data = {
+      race: S.race, checkpoints: S.checkpoints,
+      athletes: S.athletes, records: S.records, currentCp: S.currentCp
+    };
+  }
+  ARCH.ui = S.ui;
+  try { localStorage.setItem(KEY_ARCH, JSON.stringify(ARCH)); }
   catch (e) { toast("Не удалось сохранить данные"); }
+}
+
+/** Создать новую гонку; текущая остаётся в архиве. */
+function newRace(name) {
+  save();
+  const entry = makeRace(name);
+  ARCH.races.push(entry);
+  ARCH.currentId = entry.id;
+  applyRace(entry);
+  save();
+  toast("Гонка «" + entry.name + "» создана");
+}
+
+/** Открыть сохранённую гонку. */
+function openRace(id) {
+  if (id === ARCH.currentId) { setTab("timing"); return; }
+  save();
+  const entry = ARCH.races.find(r => r.id === id);
+  if (!entry) return;
+  ARCH.currentId = id;
+  applyRace(entry);
+  save();
+  setTab("timing");
+  toast("Открыта гонка «" + entry.name + "»");
+}
+
+/** Удалить гонку; если удаляем текущую — переходим к соседней. */
+function deleteRace(id) {
+  const i = ARCH.races.findIndex(r => r.id === id);
+  if (i < 0) return;
+  const wasCurrent = ARCH.races[i].id === ARCH.currentId;
+  ARCH.races.splice(i, 1);
+  if (!ARCH.races.length) ARCH.races.push(makeRace());
+  if (wasCurrent) {
+    ARCH.currentId = ARCH.races[Math.min(i, ARCH.races.length - 1)].id;
+    applyRace(currentEntry());
+  }
+  save(); renderAll();
+  toast("Гонка удалена");
 }
 function clampCps() {
   const max = S.checkpoints.length - 1;
@@ -853,10 +982,52 @@ function renderSetup() {
     : '<div class="empty">Список участников пуст.</div>';
 }
 
+/* ============ рендер: список гонок ============ */
+function renderRaces() {
+  const fmtDate = ms => new Date(ms).toLocaleDateString("ru-RU",
+    { day: "numeric", month: "long", year: "numeric" });
+
+  // дата гонки — когда её реально бежали; если не стартовала, когда создали
+  const raceDate = r => (r.data && r.data.race && r.data.race.t0) || r.created;
+  const list = ARCH.races.slice().sort((a, b) => raceDate(b) - raceDate(a));
+  $("raceList").innerHTML = '<div class="lst">' + list.map(r => {
+    const d = r.data || {};
+    const cps = d.checkpoints || [];
+    const ath = d.athletes || [];
+    const recs = d.records || {};
+    const finishCp = cps.length - 1;
+    const finished = ath.filter(a => recs[a.id] && recs[a.id][finishCp] != null).length;
+    const started = d.race && d.race.t0 != null;
+    const isCur = r.id === ARCH.currentId;
+
+    const info = ath.length
+      ? ath.length + " " + plural(ath.length, "участник", "участника", "участников") +
+        (started ? " · финишировали " + finished : " · не стартовала")
+      : "участников нет";
+
+    return '<div class="it"' + (isCur ? ' style="background:#12203b"' : '') + '>' +
+      '<div class="nm-cell" data-act="openrace" data-v="' + r.id + '" ' +
+           'style="cursor:pointer;white-space:normal;padding:4px 0">' +
+        '<div style="font-weight:600">' + esc(r.name) +
+          (isCur ? ' <span class="chip" style="font-size:11px">текущая</span>' : '') + '</div>' +
+        '<div class="hint">' + fmtDate(raceDate(r)) + ' · ' + info + '</div>' +
+      '</div>' +
+      '<button class="btn sm danger" data-act="delrace" data-v="' + r.id + '">✕</button>' +
+    '</div>';
+  }).join("") + '</div>';
+}
+
+function plural(n, one, few, many) {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+}
+
 /* ============ вкладки и общий рендер ============ */
 function setTab(t) {
   S.ui.tab = t;
-  ["timing", "results", "setup"].forEach(k => { $("tab-" + k).hidden = (k !== t); });
+  ["timing", "results", "races", "setup"].forEach(k => { $("tab-" + k).hidden = (k !== t); });
   Array.from($("nav").children).forEach(b => b.classList.toggle("on", b.dataset.v === t));
   window.scrollTo(0, 0);
   save(); renderAll();
@@ -866,6 +1037,7 @@ function renderAll() {
   renderHead();
   if (S.ui.tab === "timing") renderTiming();
   else if (S.ui.tab === "results") renderResults();
+  else if (S.ui.tab === "races") renderRaces();
   else renderSetup();
   tickClock();
 }
@@ -950,6 +1122,18 @@ document.addEventListener("click", e => {
 
     case "pickFile": $("fileInput").click(); break;
 
+    case "openrace": openRace(v); break;
+
+    case "delrace":
+      if (el.dataset.armed) deleteRace(v);
+      else {
+        el.dataset.armed = "1";
+        el.textContent = "Удалить?";
+        el.classList.add("solid-danger");
+        setTimeout(() => { if (el.isConnected) renderRaces(); }, 4000);
+      }
+      break;
+
     case "parsePaste": {
       const txt = $("pasteArea").value;
       if (!txt.trim()) { toast("Вставьте текст"); break; }
@@ -970,6 +1154,14 @@ $("manualForm").addEventListener("submit", e => {
   punch(a.id);
   $("manualBib").value = "";
   $("manualBib").focus();
+});
+
+// создание новой гонки
+$("newRaceForm").addEventListener("submit", e => {
+  e.preventDefault();
+  newRace($("newRaceName").value.trim());
+  $("newRaceName").value = "";
+  setTab("setup");
 });
 
 // добавление участника вручную
