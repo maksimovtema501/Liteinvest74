@@ -150,6 +150,11 @@ th.col-active{color:var(--cyan)}
            display:flex;align-items:center;gap:8px}
 #flash.pinned .fh{position:sticky;top:-7px;background:rgba(15,23,42,.99);padding:6px 0;margin:-6px 0 2px}
 #flash .fclose{margin-left:auto;color:#fca5a5;font-size:15px;padding:0 6px;line-height:1}
+#flash .ftitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#flash .fnav{color:var(--cyan);font-size:20px;line-height:1;padding:0 10px;flex-shrink:0}
+#flash .fnav[disabled]{color:#334155}
+#flash .fswipe{font-size:10px;color:var(--dim);font-weight:400;text-align:center;
+               padding:6px 0 2px;letter-spacing:.02em}
 #flash .fr{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.5}
 #flash .fp{min-width:14px;color:var(--dim);font-variant-numeric:tabular-nums}
 #flash .fb{min-width:26px;font-weight:700;color:var(--orange);font-variant-numeric:tabular-nums}
@@ -353,7 +358,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.7</span>
+        Версия <span id="appVer">3.8</span>
       </div>
     </div>
   </section>
@@ -720,8 +725,18 @@ function showFlash(cp, pin) {
   if (!rows.length && !flashPinned) { hideFlash(); return; }
 
   const mine = S.last ? S.last.id : null;
-  const head = '<div class="fh">' + esc(S.checkpoints[cp] || "") +
-    (flashPinned ? " · " + all.length + " " + plural(all.length, "отсечён", "отсечено", "отсечено") : "") +
+  const many = S.checkpoints.length > 1;
+  const head = '<div class="fh">' +
+    (flashPinned && many
+      ? '<button class="fnav" data-act="flashcp" data-v="-1"' + (cp === 0 ? " disabled" : "") + '>‹</button>'
+      : "") +
+    '<span class="ftitle">' + esc(S.checkpoints[cp] || "") +
+      (flashPinned ? " · " + all.length + " " + plural(all.length, "отсечён", "отсечено", "отсечено") : "") +
+    '</span>' +
+    (flashPinned && many
+      ? '<button class="fnav" data-act="flashcp" data-v="1"' +
+        (cp === S.checkpoints.length - 1 ? " disabled" : "") + '>›</button>'
+      : "") +
     (flashPinned ? '<button class="fclose" data-act="closeflash" aria-label="Закрыть">✕</button>' : "") +
     '</div>';
 
@@ -734,7 +749,8 @@ function showFlash(cp, pin) {
           '<span class="fg ' + (r.place === 1 ? "st-lead" : "st-gap") + '">' +
             (r.place === 1 ? "лидер" : fmtGap(r.gap)) + '</span>' +
         '</div>').join("")
-    : '<div class="fr"><span class="fn">Пока никто не отсечён на этой точке</span></div>');
+    : '<div class="fr"><span class="fn">Пока никто не отсечён на этой точке</span></div>') +
+    (flashPinned && many ? '<div class="fswipe">свайп влево-вправо — другая отсечка</div>' : "");
 
   $("flash").classList.add("on");
   $("flash").classList.toggle("pinned", flashPinned);
@@ -742,6 +758,33 @@ function showFlash(cp, pin) {
   if (!flashPinned) flashTimer = setTimeout(() => $("flash").classList.remove("on"), 2500);
   renderHead();
 }
+
+/** Листание отсечек в открытой сводке. */
+function stepFlashCp(d) {
+  const next = S.currentCp + d;
+  if (next < 0 || next >= S.checkpoints.length) return;
+  S.currentCp = next;
+  S.last = null;
+  vibrate(15);
+  save(); renderAll();
+  showFlash(S.currentCp, true);
+}
+
+/* Свайп влево-вправо по открытой сводке переключает отсечку.
+   Вертикальные движения не трогаем — ими сводку листают. */
+let swX = 0, swY = 0, swT = 0;
+$("flash").addEventListener("pointerdown", e => {
+  if (!flashPinned) return;
+  swX = e.clientX; swY = e.clientY; swT = Date.now();
+});
+$("flash").addEventListener("pointerup", e => {
+  if (!flashPinned || !swT) return;
+  const dx = e.clientX - swX, dy = e.clientY - swY, dt = Date.now() - swT;
+  swT = 0;
+  if (dt > 800) return;                                   // это чтение, а не свайп
+  if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  stepFlashCp(dx < 0 ? 1 : -1);
+});
 
 /* Зажатие пальцем на сводке задерживает её, пока держат экран. */
 let holdInside = false;
@@ -1423,6 +1466,8 @@ document.addEventListener("click", e => {
       break;
 
     case "closeflash": hideFlash(); break;
+
+    case "flashcp": stepFlashCp(Number(v)); break;
 
     case "summarybtn": S.ui.summaryBtn = v === "1"; save(); renderAll(); break;
 
