@@ -136,6 +136,22 @@ th.col-active{color:var(--cyan)}
 .empty{text-align:center;color:var(--dim);padding:26px 10px;font-size:14px;line-height:1.5}
 .chip{background:var(--panel2);border:1px solid var(--line2);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--muted)}
 
+/* всплывающая пятёрка после отсечки: не ловит касания, чтобы не мешать отсекать */
+#flash{
+  position:fixed;left:8px;right:8px;top:calc(var(--safe-t) + 66px);z-index:50;
+  background:rgba(15,23,42,.97);border:1px solid var(--line2);border-radius:12px;
+  padding:7px 10px;box-shadow:0 8px 24px rgba(2,6,23,.75);
+  opacity:0;pointer-events:none;transition:opacity .15s;
+}
+#flash.on{opacity:1}
+#flash .fh{font-size:11px;color:var(--cyan);font-weight:700;letter-spacing:.03em;margin-bottom:4px}
+#flash .fr{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.5}
+#flash .fp{min-width:14px;color:var(--dim);font-variant-numeric:tabular-nums}
+#flash .fb{min-width:26px;font-weight:700;color:var(--orange);font-variant-numeric:tabular-nums}
+#flash .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+#flash .fg{font-variant-numeric:tabular-nums;font-weight:600}
+#flash .me{background:rgba(34,211,238,.10);border-radius:6px}
+
 #toast{
   position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--safe-b) + 84px);
   background:#334155;color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;
@@ -229,10 +245,37 @@ th.col-active{color:var(--cyan)}
     </div>
 
     <div class="card">
-      <h2>Отсечки</h2>
+      <h2>Отсечки и круги</h2>
+      <div class="field">
+        <label class="f">Сколько отсечек всего</label>
+        <div class="row">
+          <input type="number" id="lapCount" min="1" max="40" inputmode="numeric" style="flex:1">
+          <button class="btn sm" data-act="setlaps">Задать</button>
+        </div>
+        <div class="hint" style="margin-top:6px">Для гонки по кругам укажите число кругов — отсечки создадутся сами, последняя станет финишем.</div>
+      </div>
       <div id="cpList"></div>
       <button class="btn sm wide" data-act="addcp" style="margin-top:10px">+ Добавить отсечку</button>
-      <div class="hint" style="margin-top:8px">Последняя отсечка считается финишем.</div>
+
+      <div class="sep"></div>
+      <div class="field" style="margin-bottom:0">
+        <label class="f">Что делает тап по номеру</label>
+        <div class="seg" id="lapSeg">
+          <button data-act="autolap" data-v="1">Следующий круг</button>
+          <button data-act="autolap" data-v="0">Выбранная точка</button>
+        </div>
+        <div class="hint" id="lapHint" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Масштаб приложения</h2>
+      <div class="row">
+        <button class="btn" data-act="scale" data-v="-1" style="min-width:64px">−</button>
+        <div style="flex:1;text-align:center;font-weight:700;font-size:18px" id="scaleVal">100%</div>
+        <button class="btn" data-act="scale" data-v="1" style="min-width:64px">+</button>
+      </div>
+      <div class="hint" style="margin-top:8px">Крупнее — меньше номеров в ряд, но легче попадать в перчатках.</div>
     </div>
 
     <div class="card">
@@ -282,7 +325,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.4</span>
+        Версия <span id="appVer">3.5</span>
       </div>
     </div>
   </section>
@@ -315,6 +358,7 @@ th.col-active{color:var(--cyan)}
   <button data-act="tab" data-v="setup"><span class="ico">⚙️</span>Настройки</button>
 </nav>
 
+<div id="flash"></div>
 <div id="toast"></div>
 
 <script>
@@ -328,12 +372,12 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
 
 /* ============ состояние ============ */
 let S = {
-  race: { name: "Гонка", mode: "relative", t0: null, interval: 30 },
+  race: { name: "Гонка", mode: "relative", t0: null, interval: 30, autoLap: true },
   checkpoints: ["Отсечка", "Финиш"],
   athletes: [],
   records: {},
   currentCp: 0,
-  ui: { tab: "timing", resCp: 0, resMode: "all" },
+  ui: { tab: "timing", resCp: 0, resMode: "all", scale: 1 },
   last: null
 };
 let confirmReset = false;
@@ -344,7 +388,7 @@ let seq = 0;
 let ARCH = { races: [], currentId: null, ui: null };
 
 const defaultRaceData = () => ({
-  race: { name: "Гонка", mode: "relative", t0: null, interval: 30 },
+  race: { name: "Гонка", mode: "relative", t0: null, interval: 30, autoLap: true },
   checkpoints: ["Отсечка", "Финиш"],
   athletes: [],
   records: {},
@@ -361,7 +405,7 @@ function makeRace(name) {
 function applyRace(entry) {
   invalidateBase();
   const d = entry.data || defaultRaceData();
-  S.race = Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30 }, d.race || {});
+  S.race = Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30, autoLap: true }, d.race || {});
   S.race.name = entry.name || S.race.name;
   S.checkpoints = (Array.isArray(d.checkpoints) && d.checkpoints.length) ? d.checkpoints : ["Финиш"];
   S.athletes = Array.isArray(d.athletes) ? d.athletes : [];
@@ -393,7 +437,7 @@ function load() {
         const d = JSON.parse(rawOld);
         const entry = makeRace((d.race && d.race.name) || "Гонка");
         entry.data = {
-          race: Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30 }, d.race || {}),
+          race: Object.assign({ name: entry.name, mode: "relative", t0: null, interval: 30, autoLap: true }, d.race || {}),
           checkpoints: d.checkpoints, athletes: d.athletes, records: d.records, currentCp: d.currentCp | 0
         };
         entry.name = entry.data.race.name;
@@ -405,7 +449,7 @@ function load() {
       ARCH.currentId = ARCH.races[0].id;
     }
     if (!currentEntry()) ARCH.currentId = ARCH.races[0].id;
-    S.ui = Object.assign({ tab: "timing", resCp: 0, resMode: "all" }, ARCH.ui || {});
+    S.ui = Object.assign({ tab: "timing", resCp: 0, resMode: "all", scale: 1 }, ARCH.ui || {});
     applyRace(currentEntry());
   } catch (e) {
     console.warn("load failed", e);
@@ -470,6 +514,12 @@ function deleteRace(id) {
   save(); renderAll();
   toast("Гонка удалена");
 }
+/** Масштаб содержимого. Шапку и нижнее меню не трогаем — они должны остаться на месте. */
+function applyScale() {
+  const s = S.ui.scale || 1;
+  document.querySelector("main").style.zoom = s;
+}
+
 function clampCps() {
   const max = S.checkpoints.length - 1;
   S.currentCp = Math.min(Math.max(0, S.currentCp | 0), max);
@@ -610,6 +660,27 @@ function fmtGap(ms) {
 /* ============ действия ============ */
 function vibrate(ms) { try { navigator.vibrate && navigator.vibrate(ms || 35); } catch (e) {} }
 
+/** Короткая сводка после отсечки: точка и пятёрка лидеров на ней. */
+let flashTimer = null;
+function showFlash(cp) {
+  const rows = ranking(cp).filter(r => r.status === "done").slice(0, 5);
+  if (!rows.length) return;
+  const mine = S.last ? S.last.id : null;
+  $("flash").innerHTML =
+    '<div class="fh">' + esc(S.checkpoints[cp] || "") + '</div>' +
+    rows.map(r =>
+      '<div class="fr' + (r.a.id === mine ? " me" : "") + '">' +
+        '<span class="fp">' + r.place + '</span>' +
+        '<span class="fb">' + esc(r.a.bib) + '</span>' +
+        '<span class="fn">' + esc(r.a.name || "") + '</span>' +
+        '<span class="fg ' + (r.place === 1 ? "st-lead" : "st-gap") + '">' +
+          (r.place === 1 ? "лидер" : fmtGap(r.gap)) + '</span>' +
+      '</div>').join("");
+  $("flash").classList.add("on");
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => $("flash").classList.remove("on"), 2500);
+}
+
 let toastTimer = null;
 function toast(msg) {
   const el = $("toast");
@@ -635,6 +706,21 @@ function resetRace() {
   save(); renderAll();
   toast("Гонка сброшена");
 }
+/* Круг не может закончиться за пару секунд — значит, это дрогнувший палец. */
+const DOUBLE_TAP_MS = 5000;
+
+/** Пройденные отсечки спортсмена по возрастанию. */
+function punchedCps(id) {
+  const r = S.records[id];
+  return r ? Object.keys(r).map(Number).sort((a, b) => a - b) : [];
+}
+/** Первая непройденная отсечка — туда пойдёт следующий тап. */
+function nextFreeCp(id) {
+  const r = S.records[id] || {};
+  for (let i = 0; i < S.checkpoints.length; i++) if (r[i] == null) return i;
+  return null;
+}
+
 function punch(id) {
   const entry = currentEntry();
   if (entry && entry.finished) {
@@ -643,20 +729,50 @@ function punch(id) {
   }
   // в режиме «по первому» старт не нужен: отсчёт задаёт первая же отсечка
   if (S.race.mode !== "relative" && S.race.t0 == null) { toast("Сначала дайте старт"); return; }
+
+  const a = S.athletes.find(x => x.id === id);
   const r = S.records[id] || (S.records[id] = {});
-  if (r[S.currentCp] != null) { toast("Уже отсечён на этой точке"); return; }
-  r[S.currentCp] = Date.now();
-  if (S.race.t0 == null) S.race.t0 = r[S.currentCp];   // для часов в шапке
-  S.last = { id: id, cp: S.currentCp };
+  let cp;
+
+  if (S.race.autoLap) {
+    // каждый тап — следующий круг этого спортсмена
+    const done = punchedCps(id);
+    if (done.length) {
+      const last = r[done[done.length - 1]];
+      if (Date.now() - last < DOUBLE_TAP_MS) {
+        toast("№" + (a ? a.bib : "") + " отсечён только что — повтор не записан");
+        return;
+      }
+    }
+    cp = nextFreeCp(id);
+    if (cp == null) {
+      toast("№" + (a ? a.bib : "") + " прошёл все отсечки");
+      return;
+    }
+  } else {
+    cp = S.currentCp;
+    if (r[cp] != null) { toast("Уже отсечён на этой точке"); return; }
+  }
+
+  r[cp] = Date.now();
+  if (S.race.t0 == null) S.race.t0 = r[cp];   // для часов в шапке
+  S.currentCp = cp;                           // зачёт показываем по этой точке
+  S.last = { id: id, cp: cp };
   vibrate(35);
   save(); renderTiming();
+  showFlash(cp);
 }
+
 function unpunch(id) {
   const r = S.records[id];
-  if (!r || r[S.currentCp] == null) return;
-  delete r[S.currentCp];
+  if (!r) return;
+  // в режиме кругов стираем последний круг, иначе — текущую точку
+  const done = punchedCps(id);
+  const cp = S.race.autoLap ? (done.length ? done[done.length - 1] : null) : S.currentCp;
+  if (cp == null || r[cp] == null) return;
+  delete r[cp];
   if (!Object.keys(r).length) delete S.records[id];
-  if (S.last && S.last.id === id && S.last.cp === S.currentCp) S.last = null;
+  if (S.last && S.last.id === id && S.last.cp === cp) S.last = null;
   vibrate(20);
   save(); renderTiming();
 }
@@ -704,7 +820,8 @@ function renderTiming() {
 
   // переключатель отсечек
   $("cpSwitch").innerHTML = cps.length > 1
-    ? '<div class="card"><h2>Текущая отсечка</h2><div class="seg">' +
+    ? '<div class="card"><h2>' + (S.race.autoLap ? "Показывать зачёт по отсечке" : "Текущая отсечка") +
+      '</h2><div class="seg">' +
       cps.map((c, i) => '<button data-act="cp" data-v="' + i + '"' +
         (i === S.currentCp ? ' class="on"' : '') + '>' + esc(c) + '</button>').join("") +
       '</div></div>'
@@ -748,20 +865,42 @@ function renderTiming() {
   rows.forEach(r => { byId[r.a.id] = r; });
   const list = sortedByBib();
 
-  $("gridTitle").textContent = "Участники · " + esc(cps[S.currentCp] || "");
+  $("gridTitle").textContent = S.race.autoLap
+    ? "Участники · тап = следующая отсечка"
+    : "Участники · " + esc(cps[S.currentCp] || "");
+
   $("numGrid").innerHTML = list.length
     ? list.map(a => {
-        const r = byId[a.id];
-        const done = elapsedAt(a, S.currentCp, oi) != null;
-        if (done) {
-          const g = r.place === 1 ? "лидер" : fmtGap(r.gap);
-          return '<div class="nbtn done"><div class="n">' + esc(a.bib) + '</div>' +
-                 '<div class="s">' + r.place + " · " + g + '</div>' +
-                 '<button class="x" data-act="unpunch" data-v="' + a.id + '" aria-label="Стереть">✕</button></div>';
+        // в режиме кругов плитка живёт по последней пройденной точке спортсмена,
+        // иначе — по выбранной судьёй
+        const doneCps = punchedCps(a.id);
+        const cp = S.race.autoLap
+          ? (doneCps.length ? doneCps[doneCps.length - 1] : null)
+          : (elapsedAt(a, S.currentCp, oi) != null ? S.currentCp : null);
+
+        if (cp == null) {
+          return '<button class="nbtn" data-act="punch" data-v="' + a.id + '">' +
+                 '<div class="n">' + esc(a.bib) + '</div>' +
+                 '<div class="s">' + esc(a.name || "") + '</div></button>';
         }
-        return '<button class="nbtn" data-act="punch" data-v="' + a.id + '">' +
+
+        const r = (cp === S.currentCp ? byId[a.id] : ranking(cp).find(x => x.a.id === a.id));
+        const gap = r ? (r.place === 1 ? "лидер" : fmtGap(r.gap)) : "";
+        const place = r && r.place ? r.place + " · " : "";
+        const label = doneCps.length === cps.length
+          ? "финиш"
+          : (S.race.autoLap ? esc(cps[cp] || "") : "");
+
+        // плитка — div, а не button: внутри лежит кнопка ✕, а вложенные кнопки
+        // браузер выносит наружу. Нажатие ловится делегированием по data-act.
+        // Когда все круги пройдены, тапать больше некуда — плитка становится неактивной.
+        const more = S.race.autoLap && doneCps.length < cps.length;
+        const act = more ? ' data-act="punch" data-v="' + a.id + '" role="button" tabindex="0"' : "";
+        return '<div class="nbtn done"' + act + '>' +
                '<div class="n">' + esc(a.bib) + '</div>' +
-               '<div class="s">' + esc(a.name || "") + '</div></button>';
+               '<div class="s">' + (label ? label + " · " : place) + gap + '</div>' +
+               '<button class="x" data-act="unpunch" data-v="' + a.id + '" aria-label="Стереть">✕</button>' +
+               '</div>';
       }).join("")
     : '<div class="empty">Нет участников.<br>Добавьте их в «Настройках».</div>';
 
@@ -1054,6 +1193,17 @@ function renderSetup() {
               "дальше время старта каждого приложение считает само."
   }[S.race.mode] || "";
 
+  Array.from($("lapSeg").children).forEach(b =>
+    b.classList.toggle("on", (b.dataset.v === "1") === !!S.race.autoLap));
+  $("lapHint").textContent = S.race.autoLap
+    ? "Каждый тап по номеру пишет следующую непройденную отсечку этого спортсмена: " +
+      "первый тап — первая, второй — вторая и так далее. Переключать точку вручную не нужно. " +
+      "Повторный тап в первые 5 секунд игнорируется, чтобы случайное касание не съело круг."
+    : "Тап пишет отсечку в точку, выбранную вверху экрана хронометража. " +
+      "Второй тап по тому же номеру ничего не изменит.";
+  if (document.activeElement !== $("lapCount")) $("lapCount").value = S.checkpoints.length;
+  $("scaleVal").textContent = Math.round((S.ui.scale || 1) * 100) + "%";
+
   $("cpList").innerHTML = '<div class="lst">' + S.checkpoints.map((c, i) =>
     '<div class="it">' +
       '<span class="pl-badge">' + (i + 1) + '</span>' +
@@ -1157,6 +1307,44 @@ document.addEventListener("click", e => {
     case "resmode": S.ui.resMode = v; save(); renderResults(); break;
     case "export": exportCSV(); break;
     case "mode": S.race.mode = v; save(); renderAll(); break;
+
+    case "autolap": S.race.autoLap = v === "1"; save(); renderAll(); break;
+
+    case "scale": {
+      const step = 0.1 * Number(v);
+      const next = Math.round(((S.ui.scale || 1) + step) * 10) / 10;
+      S.ui.scale = Math.min(1.6, Math.max(0.8, next));
+      applyScale(); save(); renderSetup();
+      break;
+    }
+
+    case "setlaps": {
+      const n = parseInt($("lapCount").value, 10);
+      if (!n || n < 1 || n > 40) { toast("Укажите от 1 до 40"); break; }
+      const cur = S.checkpoints.length;
+      if (n > cur) {
+        for (let i = cur; i < n; i++) S.checkpoints.push("");
+      } else if (n < cur) {
+        // не даём стереть точки, на которых уже есть отсечки
+        for (let i = n; i < cur; i++) {
+          for (const id in S.records) {
+            if (S.records[id][i] != null) {
+              toast("На «" + S.checkpoints[i] + "» уже есть отсечки — сначала сотрите их");
+              renderSetup();
+              return;
+            }
+          }
+        }
+        S.checkpoints.length = n;
+      }
+      // сквозная нумерация кругов, последняя точка — финиш
+      for (let i = 0; i < n - 1; i++) S.checkpoints[i] = "Круг " + (i + 1);
+      S.checkpoints[n - 1] = "Финиш";
+      S.last = null;
+      save(); renderAll();
+      toast("Отсечек: " + n);
+      break;
+    }
 
     case "addcp": {
       // новая точка встаёт перед финишем — уже записанные времена сдвигаем
@@ -1356,6 +1544,7 @@ document.addEventListener("visibilitychange", () => {
 
 /* ============ старт ============ */
 load();
+applyScale();
 setTab(S.ui.tab || "timing");
 setInterval(tickClock, 100);
 // «на трассе» зависит от текущего времени — обновляем только в протоколе,
