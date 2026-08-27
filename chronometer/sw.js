@@ -1,7 +1,7 @@
 /* Service worker «Хронометра».
    Приложение обязано работать без сети (лес, мороз, нет связи),
    поэтому оболочка кэшируется целиком и отдаётся из кэша. */
-const CACHE = "hronometr-v6";
+const CACHE = "hronometr-v7";
 const SHELL = [
   "./",
   "./index.html",
