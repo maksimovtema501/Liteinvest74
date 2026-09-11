@@ -227,7 +227,7 @@ th.col-active{color:var(--cyan)}
     </div>
     <div id="finishBox" style="margin-bottom:14px"></div>
     <div id="resultsBody"></div>
-    <button class="btn wide" data-act="export">Экспорт протокола (CSV)</button>
+    <div id="exportBox"></div>
   </section>
 
   <!-- НАСТРОЙКИ -->
@@ -358,7 +358,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.8</span>
+        Версия <span id="appVer">3.9</span>
       </div>
     </div>
   </section>
@@ -809,8 +809,10 @@ document.addEventListener("pointerup", () => {
 
 // долгое удержание на сводке — это чтение, а не нажатие того, что под ней
 document.addEventListener("click", e => {
-  if (holdStart && Date.now() - holdStart > 350) {
-    const el = $("flash");
+  const el = $("flash");
+  // сводка уже погасла — держать нечего, иначе подавили бы чужое нажатие:
+  // прямоугольник у скрытого окна остаётся, оно спрятано прозрачностью
+  if (holdStart && el.classList.contains("on") && Date.now() - holdStart > 350) {
     const b = el.getBoundingClientRect();
     if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) {
       e.stopPropagation();
@@ -1105,6 +1107,15 @@ function renderResults() {
 
   $("finishBox").innerHTML = finishBoxHTML();
 
+  // два независимых пути наружу: «Поделиться» надёжнее на iPhone,
+  // «Сохранить» — на Android. Копирование остаётся на случай, если оба не вышли.
+  $("exportBox").innerHTML =
+    (canShareFile()
+      ? '<button class="btn wide" data-act="share" style="margin-bottom:8px">Поделиться протоколом</button>'
+      : "") +
+    '<button class="btn wide" data-act="save">Сохранить файл (CSV)</button>' +
+    '<button class="btn wide" data-act="copy" style="margin-top:8px">Скопировать текстом</button>';
+
   if (!S.athletes.length) {
     $("resultsBody").innerHTML = '<div class="card"><div class="empty">Нет участников.</div></div>';
     return;
@@ -1158,15 +1169,98 @@ function groupAthletes() {
 }
 
 /* ============ экспорт ============ */
-function exportCSV() {
+/** Имя файла без символов, на которых спотыкаются файловые менеджеры Android. */
+function csvFileName() {
+  const clean = s => String(s || "")
+    .replace(/[\\/:*?"<>|—–]+/g, " ")
+    .replace(/\s+/g, " ").trim();
+  const race = clean(S.race.name) || "Протокол";
+  const cp = clean(S.checkpoints[S.ui.resCp]);
+  return (cp ? race + " - " + cp : race) + ".csv";
+}
+
+/** Поддерживает ли браузер отправку файла через системное «Поделиться». */
+function canShareFile() {
+  try {
+    if (!navigator.canShare || typeof File !== "function") return false;
+    // тип строго без «;charset=...»: Android сверяет его со своим списком
+    return navigator.canShare({ files: [new File(["a"], "t.csv", { type: "text/csv" })] });
+  } catch (e) { return false; }
+}
+
+/** Сохранение файла ссылкой — основной путь на Android и на компьютере. */
+function saveCSV() {
   if (!S.athletes.length) { toast("Нет данных для экспорта"); return; }
+  const name = csvFileName();
+  try {
+    const url = URL.createObjectURL(new Blob([buildCSV()], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    toast("Сохранено в «Загрузки»: " + name);
+  } catch (e) {
+    console.warn("save failed", e);
+    copyCSV();
+  }
+}
+
+/** Системное «Поделиться» — единственный надёжный путь на iPhone. */
+function shareCSV() {
+  if (!S.athletes.length) { toast("Нет данных для экспорта"); return; }
+  if (!canShareFile()) { saveCSV(); return; }
+  const name = csvFileName();
+  try {
+    const file = new File([buildCSV()], name, { type: "text/csv" });
+    navigator.share({ files: [file], title: name }).catch(err => {
+      if (err && err.name === "AbortError") return;      // окно просто закрыли
+      console.warn("share failed", err);
+      toast("Отправить не вышло — сохраняю файл");
+      saveCSV();
+    });
+  } catch (e) {
+    console.warn("share threw", e);
+    saveCSV();
+  }
+}
+
+/** Последний рубеж: протокол в буфер обмена. */
+function copyCSV() {
+  const csv = buildCSV();
+  const done = () => toast("Протокол скопирован — вставьте в письмо или заметку");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(csv).then(done, () => legacyCopy(csv, done));
+  } else legacyCopy(csv, done);
+}
+function legacyCopy(text, done) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (ok) done(); else toast("Не удалось выгрузить протокол");
+  } catch (e) { toast("Не удалось выгрузить протокол"); }
+}
+
+/** Собирает протокол в CSV: разделитель «;» и BOM, чтобы Excel открыл верно. */
+function buildCSV() {
   const cps = S.checkpoints, active = S.ui.resCp, oi = orderIndexMap();
   const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
 
   const lines = [];
   lines.push([q(S.race.name || "Гонка")].join(";"));
   lines.push([q("Зачёт по отсечке: " + (cps[active] || ""))].join(";"));
-  lines.push([q("Режим старта: " + (S.race.mode === "mass" ? "общий" : "раздельный, интервал " + S.race.interval + " с"))].join(";"));
+  lines.push(q("Режим старта: " + (
+    S.race.mode === "mass" ? "общий старт" :
+    S.race.mode === "relative" ? "по первому, интервал " + S.race.interval + " с" :
+    "раздельный, интервал " + S.race.interval + " с")));
   lines.push("");
 
   const head = ["Место", "Номер", "Участник", "Группа"];
@@ -1200,20 +1294,7 @@ function exportCSV() {
     });
   }
 
-  const csv = "﻿" + lines.join("\r\n");
-  const name = ((S.race.name || "protokol").replace(/[^\wа-яА-ЯёЁ\- ]+/g, "").trim() || "protokol")
-    + " — " + (cps[active] || "") + ".csv";
-  const file = new File([csv], name, { type: "text/csv;charset=utf-8" });
-
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file], title: name }).catch(() => {});
-    return;
-  }
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const a = document.createElement("a");
-  a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return "﻿" + lines.join("\r\n");
 }
 
 /* ============ разбор списков участников ============ */
@@ -1447,7 +1528,9 @@ document.addEventListener("click", e => {
     case "unpunch": e.stopPropagation(); unpunch(v); break;
     case "rescp": S.ui.resCp = +v; save(); renderResults(); break;
     case "resmode": S.ui.resMode = v; save(); renderResults(); break;
-    case "export": exportCSV(); break;
+    case "share": shareCSV(); break;
+    case "save": saveCSV(); break;
+    case "copy": copyCSV(); break;
     case "mode": S.race.mode = v; save(); renderAll(); break;
 
     case "autolap": S.race.autoLap = v === "1"; save(); renderAll(); break;
