@@ -315,6 +315,8 @@ main{padding:14px 14px calc(var(--safe-b) + 96px)}
       </div>
     </div>
 
+    <div class="card" id="widgetCard"></div>
+
     <div class="card">
       <div style="font-weight:600;margin-bottom:10px">Данные</div>
       <button class="list-btn" id="btnExport"><span class="ico">⬇</span> Сохранить копию (файл)</button>
@@ -361,7 +363,11 @@ const DEFAULTS = {
   tasks: [],      // задачи, в т.ч. повторяющиеся
   lessons: [],    // занятия репетиторства (серии и разовые)
   fired: {},      // какие напоминания уже показаны: ключ занятия -> 1
-  settings: { remindDefault: 30 }
+  settings: {
+    remindDefault: 30,
+    // синхронизация плана дня для виджета на iPhone (Scriptable)
+    sync: { on: false, code: "", project: "", key: "", last: "", err: "" }
+  }
 };
 
 let S = structuredClone(DEFAULTS);
@@ -375,10 +381,12 @@ function load(){
   if(!Array.isArray(S.lessons)) S.lessons = [];
   if(!S.fired || typeof S.fired !== "object") S.fired = {};
   if(!S.settings) S.settings = { remindDefault: 30 };
+  if(!S.settings.sync) S.settings.sync = { on: false, code: "", project: "", key: "", last: "", err: "" };
 }
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }
   catch(e){ toast("Не удалось сохранить: нет места в хранилище"); }
+  syncSoon();
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -565,6 +573,130 @@ function esc(s){
     ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 }
 const CHECK_SVG = '<svg viewBox="0 0 26 26"><path d="M6 13.5l4.5 4.5L20 8.5"/></svg>';
+
+/* ============================================================
+   Синхронизация плана дня для виджета на iPhone
+
+   Виджет рисует приложение Scriptable, а web-приложение не может отдать
+   ему данные напрямую: localStorage виден только самому сайту. Поэтому
+   план на сегодня уезжает одним документом в Firestore, а виджет читает
+   его по коду. Ключ и проект вписывает сам пользователь — в репозитории
+   их нет.
+   ============================================================ */
+let syncQuiet = false, syncTimer = null, syncAt = 0;
+
+function syncCode(){
+  // 12 символов из непохожих друг на друга букв и цифр: код диктуют вслух
+  const abc = "abcdefghijkmnpqrstuvwxyz23456789";
+  let out = "";
+  for(let i = 0; i < 12; i++) out += abc[Math.floor(Math.random() * abc.length)];
+  return out;
+}
+
+function syncSnapshot(){
+  const t = today(), tm = addDays(t, 1);
+  const tasks = tasksOn(t).map(x => ({ t: x.title, tm: x.time || "", d: isDone(x, t), p: x.prio || 0 }));
+  const lessons = lessonOccurrences(t, t).map(o => ({
+    tm: o.time, t: lessonTitle(o.lesson), pl: o.lesson.place || "", st: o.status, dur: o.dur
+  }));
+  return {
+    v: 1, date: t, updated: t + "T" + nowHM(),
+    total: tasks.length, done: tasks.filter(x => x.d).length,
+    tasks: tasks, lessons: lessons,
+    tomorrow: {
+      total: tasksOn(tm).length,
+      lessons: lessonOccurrences(tm, tm).filter(o => o.status !== "cancelled").length
+    }
+  };
+}
+
+function syncReady(){
+  const c = S.settings.sync;
+  return !!(c.on && c.code && c.key && c.project);
+}
+
+async function syncPush(manual){
+  const c = S.settings.sync;
+  if(!syncReady()){
+    if(manual) toast("Сначала настройте виджет");
+    return;
+  }
+  const url = "https://firestore.googleapis.com/v1/projects/" + encodeURIComponent(c.project) +
+              "/databases/(default)/documents/planner/" + encodeURIComponent(c.code) +
+              "?key=" + encodeURIComponent(c.key);
+  const body = { fields: {
+    data:    { stringValue: JSON.stringify(syncSnapshot()) },
+    updated: { stringValue: new Date().toISOString() }
+  } };
+  try{
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if(!res.ok){
+      const e = await res.json().catch(() => null);
+      throw new Error((e && e.error && e.error.message) || ("код ответа " + res.status));
+    }
+    c.last = nowHM();
+    c.err = "";
+    syncAt = Date.now();
+    if(manual) toast("План отправлен в виджет");
+  }catch(e){
+    c.err = String((e && e.message) || e);
+    if(manual) toast("Не отправилось: " + c.err);
+  }
+  syncQuiet = true; save(); syncQuiet = false;     // сохранение статуса не должно снова дёргать отправку
+  if(view === "more") renderMore();
+}
+
+function syncSoon(){
+  if(syncQuiet || !syncReady()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncPush(false), 1500);
+}
+
+/* Готовый текст скрипта для Scriptable: шаблон лежит рядом, настройки
+   подставляются здесь, на устройстве. */
+let widgetTemplate = null;
+async function widgetScript(){
+  if(widgetTemplate === null){
+    const res = await fetch("widget-scriptable.js", { cache: "no-cache" });
+    widgetTemplate = await res.text();
+  }
+  const c = S.settings.sync;
+  return widgetTemplate
+    .replace('code:    ""', 'code:    "' + c.code + '"')
+    .replace('project: ""', 'project: "' + c.project + '"')
+    .replace('key:     ""', 'key:     "' + c.key + '"');
+}
+
+async function copyText(text, okMsg){
+  try{
+    await navigator.clipboard.writeText(text);
+    toast(okMsg);
+    return true;
+  }catch(e){
+    // Safari отказывает, если между нажатием и записью был сетевой запрос,
+    // поэтому запасной путь — показать текст для ручного копирования
+    openSheet(
+      '<div class="sheet-title">Скопируйте вручную</div>' +
+      '<div class="field"><textarea id="copy-area" style="min-height:220px;font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+        esc(text) + "</textarea></div>" +
+      '<div class="sheet-actions"><button class="btn primary wide" id="copy-close">Готово</button></div>',
+    body => {
+      const a = body.querySelector("#copy-area");
+      a.focus(); a.select();
+      body.querySelector("#copy-close").addEventListener("click", closeSheet);
+    });
+    return false;
+  }
+}
+
+const FIRESTORE_RULE =
+  "match /planner/{code} {\n" +
+  "  allow read, write: if code.size() >= 12;\n" +
+  "}";
 
 /* ============================================================
    Состояние экрана
@@ -874,12 +1006,137 @@ function renderMore(){
     btn.textContent = "Включить";
   }
   $("#remindDefault").value = String(S.settings.remindDefault);
+  renderWidgetCard();
 
   const total = S.tasks.length, lessons = S.lessons.length;
   const doneAll = S.tasks.reduce((s, t) => s + (t.done ? t.done.length : 0), 0);
   $("#stats").innerHTML = "Задач: " + total + " · выполнений: " + doneAll + " · занятий: " + lessons +
     "<br>Данные хранятся только на этом устройстве.<br>Планер · версия 1.0";
 }
+
+/* ---------- карточка виджета на экране «Ещё» ---------- */
+function renderWidgetCard(){
+  const c = S.settings.sync;
+  let status, color = "";
+  if(!c.on)          status = "выключен";
+  else if(c.err)     { status = "ошибка: " + c.err; color = "color:#fca5a5"; }
+  else if(c.last)    status = "план отправлен в " + c.last;
+  else               status = "включён, ждём первой отправки";
+
+  let html =
+    '<div class="row" style="margin-bottom:10px">' +
+      '<div style="min-width:0"><div style="font-weight:600">Виджет на iPhone</div>' +
+      '<div class="head-sub" style="' + color + '">' + esc(status) + "</div></div>" +
+      '<button class="btn sm sp" data-w="setup">' + (c.on ? "Изменить" : "Настроить") + "</button>" +
+    "</div>";
+
+  if(c.on){
+    html += '<div class="hr"></div>' +
+      '<button class="list-btn" data-w="copy"><span class="ico">⧉</span> Скопировать скрипт для Scriptable</button>' +
+      '<button class="list-btn" data-w="push"><span class="ico">↻</span> Обновить виджет сейчас</button>' +
+      '<button class="list-btn" data-w="rules"><span class="ico">🔑</span> Правило доступа для Firebase</button>' +
+      '<button class="list-btn" data-w="help"><span class="ico">?</span> Как поставить виджет на экран</button>';
+  }else{
+    html += '<div class="head-sub" style="line-height:1.6">Виджет показывает задачи и занятия на сегодня прямо на рабочем столе. ' +
+            'Нужно бесплатное приложение Scriptable из App Store и разовая настройка на несколько минут.</div>';
+  }
+  $("#widgetCard").innerHTML = html;
+}
+
+function widgetSetupSheet(){
+  const c = S.settings.sync;
+  openSheet(
+    '<div class="sheet-title">Виджет на iPhone</div>' +
+    '<div class="head-sub" style="line-height:1.6;margin-bottom:14px">' +
+      'План на сегодня будет уезжать в вашу базу Firebase, а виджет — читать его оттуда. ' +
+      'Вставьте настройки Firebase (блок <b>firebaseConfig</b> из консоли Firebase, ' +
+      'раздел «Настройки проекта» → «Ваши приложения»).</div>' +
+    '<div class="field"><label>Настройки Firebase</label>' +
+      '<textarea id="w-cfg" placeholder=\'{ "apiKey": "…", "projectId": "…" }\' style="min-height:110px;font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+      (c.key ? esc('{\n  "apiKey": "' + c.key + '",\n  "projectId": "' + c.project + '"\n}') : "") + "</textarea></div>" +
+    '<div class="field"><label>Код синхронизации (его знает только ваш виджет)</label>' +
+      '<input id="w-code" value="' + esc(c.code || syncCode()) + '" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
+    '<div class="head-sub" style="margin-bottom:14px">Код — это и есть пароль к плану дня: кто его знает, тот видит ваши задачи. Не публикуйте его.</div>' +
+    '<div class="sheet-actions">' +
+      (c.on ? '<button class="btn danger" id="w-off">Выключить</button>' : "") +
+      '<button class="btn primary" id="w-on">' + (c.on ? "Сохранить" : "Включить") + "</button>" +
+    "</div>",
+  body => {
+    body.querySelector("#w-on").addEventListener("click", async () => {
+      const raw = body.querySelector("#w-cfg").value;
+      const key = (raw.match(/apiKey["'\s:]+([A-Za-z0-9_\-]{20,})/) || [])[1] || "";
+      const proj = (raw.match(/projectId["'\s:]+([a-z0-9\-]{4,})/) || [])[1] || "";
+      const code = body.querySelector("#w-code").value.trim();
+      if(!key || !proj){ toast("Не нашёл apiKey и projectId в настройках"); return; }
+      if(code.length < 12){ toast("Код должен быть не короче 12 символов"); return; }
+      Object.assign(S.settings.sync, { on: true, key: key, project: proj, code: code, err: "" });
+      syncQuiet = true; save(); syncQuiet = false;
+      closeSheet(); renderMore();
+      await syncPush(true);
+      if(!S.settings.sync.err) widgetHelpSheet();
+    });
+    const off = body.querySelector("#w-off");
+    if(off) off.addEventListener("click", () => {
+      S.settings.sync.on = false;
+      syncQuiet = true; save(); syncQuiet = false;
+      closeSheet(); renderMore(); toast("Синхронизация выключена");
+    });
+  });
+}
+
+function widgetHelpSheet(){
+  openSheet(
+    '<div class="sheet-title">Как поставить виджет</div>' +
+    '<div class="head-sub" style="line-height:1.8">' +
+      '1. Установите <b>Scriptable</b> из App Store (бесплатно).<br>' +
+      '2. Здесь нажмите «Скопировать скрипт для Scriptable».<br>' +
+      '3. В Scriptable нажмите <b>+</b>, вставьте текст, назовите скрипт <b>Планер</b> и закройте его.<br>' +
+      '4. На рабочем столе задержите палец на пустом месте → <b>+</b> в углу → найдите <b>Scriptable</b> → ' +
+      'выберите размер (средний показывает 4 строки, большой — 10) → «Добавить виджет».<br>' +
+      '5. Нажмите на сам виджет и в строке <b>Script</b> выберите «Планер».<br>' +
+      '6. Если виджет пишет про доступ — добавьте правило в Firebase, пункт «Правило доступа для Firebase».' +
+    "</div>" +
+    '<div class="head-sub" style="margin-top:12px">Виджет обновляется сам примерно раз в 15–30 минут — так решает iOS. Нажатие на виджет открывает планер.</div>' +
+    '<div class="sheet-actions"><button class="btn primary wide" id="w-help-ok">Понятно</button></div>',
+  body => body.querySelector("#w-help-ok").addEventListener("click", closeSheet));
+}
+
+function widgetRulesSheet(){
+  openSheet(
+    '<div class="sheet-title">Правило доступа для Firebase</div>' +
+    '<div class="head-sub" style="line-height:1.7;margin-bottom:12px">' +
+      'В консоли Firebase: <b>Firestore Database</b> → вкладка <b>Rules</b>. ' +
+      'Добавьте блок ниже <u>внутрь</u> существующих правил, рядом с другими <b>match</b>, ' +
+      'и нажмите «Publish». Не удаляйте то, что там уже есть, — на этих правилах работает ваш второй сайт.' +
+    "</div>" +
+    '<div class="field"><textarea id="w-rule" readonly style="min-height:100px;font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+      esc(FIRESTORE_RULE) + "</textarea></div>" +
+    '<div class="head-sub">Доступ даётся только коллекции planner и только по коду длиннее 12 символов. Остальные данные проекта правило не затрагивает.</div>' +
+    '<div class="sheet-actions">' +
+      '<button class="btn" id="w-rule-close">Закрыть</button>' +
+      '<button class="btn primary" id="w-rule-copy">Скопировать</button>' +
+    "</div>",
+  body => {
+    body.querySelector("#w-rule-close").addEventListener("click", closeSheet);
+    body.querySelector("#w-rule-copy").addEventListener("click", () =>
+      copyText(FIRESTORE_RULE, "Правило скопировано"));
+  });
+}
+
+document.getElementById("widgetCard").addEventListener("click", async e => {
+  const b = e.target.closest("[data-w]"); if(!b) return;
+  const a = b.dataset.w;
+  if(a === "setup") widgetSetupSheet();
+  if(a === "help")  widgetHelpSheet();
+  if(a === "rules") widgetRulesSheet();
+  if(a === "push")  syncPush(true);
+  if(a === "copy"){
+    try{
+      const text = await widgetScript();
+      copyText(text, "Скрипт скопирован — вставьте его в Scriptable");
+    }catch(err){ toast("Не удалось собрать скрипт: " + err.message); }
+  }
+});
 
 /* ============================================================
    Общий рендер
@@ -1457,8 +1714,11 @@ load();
 setView("day");
 checkReminders();
 
+if(syncReady()) syncPush(false);
+
 setInterval(() => {
   checkReminders();
+  if(syncReady() && Date.now() - syncAt > 15 * 60000) syncPush(false);
   // после полуночи «сегодня» должно стать другим днём само
   if(view === "day" && curDay !== today() && document.hidden === false) render();
 }, 30000);
@@ -1467,6 +1727,7 @@ document.addEventListener("visibilitychange", () => {
   if(document.hidden) return;
   checkReminders();
   render();
+  if(syncReady()) syncPush(false);
 });
 
 if("serviceWorker" in navigator){

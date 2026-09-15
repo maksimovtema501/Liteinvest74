@@ -1,11 +1,12 @@
 /* Service worker «Планера».
    Планер нужен и в метро, и в школе без связи, поэтому оболочка кэшируется
    целиком и отдаётся из кэша; данные и так лежат в localStorage. */
-const CACHE = "planer-v1";
+const CACHE = "planer-v2";
 const SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
+  "./widget-scriptable.js",
   "./icon-180.png",
   "./icon-192.png",
   "./icon-512.png"
