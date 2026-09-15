@@ -1,0 +1,1477 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Планер</title>
+<meta name="description" content="Планер задач на день и неделю с галочками и расписанием репетиторства: переносы, отмены, напоминания.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#020617">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Планер">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#020617; --panel:#0f172a; --panel2:#1e293b; --line:#1e293b; --line2:#334155;
+  --text:#e2e8f0; --muted:#94a3b8; --dim:#64748b;
+  --violet:#8b5cf6; --cyan:#22d3ee; --emerald:#10b981; --amber:#f59e0b; --red:#ef4444;
+  --safe-t:env(safe-area-inset-top); --safe-b:env(safe-area-inset-bottom);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased; overscroll-behavior-y:none;
+  user-select:none; -webkit-user-select:none;
+}
+input,textarea{user-select:text;-webkit-user-select:text}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ---------- каркас ---------- */
+#head{
+  position:sticky; top:0; z-index:20; background:rgba(2,6,23,.92);
+  backdrop-filter:blur(12px); border-bottom:1px solid var(--line);
+  padding:calc(var(--safe-t) + 10px) 14px 10px;
+}
+.head-row{display:flex;align-items:center;gap:10px}
+.head-title{font-size:19px;font-weight:700;letter-spacing:-.3px}
+.head-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.head-actions{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
+main{padding:14px 14px calc(var(--safe-b) + 96px)}
+#nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+  background:rgba(15,23,42,.96); backdrop-filter:blur(12px);
+  border-top:1px solid var(--line); padding-bottom:var(--safe-b);
+}
+#nav button{flex:1;padding:11px 4px 9px;font-size:11px;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:3px}
+#nav button .ico{font-size:21px;line-height:1}
+#nav button.on{color:var(--violet)}
+.view{display:none}
+.view.on{display:block}
+
+/* ---------- общие элементы ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:12px 16px;border-radius:12px;background:var(--panel2);
+  border:1px solid var(--line2);font-weight:600;font-size:15px;
+}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--violet);border-color:var(--violet);color:#fff}
+.btn.ghost{background:transparent}
+.btn.danger{color:#fecaca;border-color:#7f1d1d;background:rgba(239,68,68,.1)}
+.btn.sm{padding:8px 12px;font-size:13px;border-radius:10px}
+.btn.wide{width:100%}
+.icon-btn{
+  width:38px;height:38px;border-radius:11px;background:var(--panel2);
+  border:1px solid var(--line2);display:inline-flex;align-items:center;justify-content:center;font-size:18px;
+}
+.icon-btn:active{transform:scale(.94)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+.muted{color:var(--muted)}
+.dim{color:var(--dim)}
+.empty{text-align:center;color:var(--dim);font-size:14px;padding:22px 10px;line-height:1.6}
+.row{display:flex;align-items:center;gap:10px}
+.sp{margin-left:auto}
+.hr{height:1px;background:var(--line);margin:12px -14px}
+.sect-title{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--dim);margin:18px 2px 8px}
+
+/* сегменты */
+.seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;padding:8px 6px;border-radius:9px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--panel2);color:var(--text)}
+
+/* переключатель дат */
+.datenav{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.datenav .title{flex:1;text-align:center;font-weight:700;font-size:15px}
+.datenav .title small{display:block;font-weight:500;font-size:11px;color:var(--muted);margin-top:2px}
+
+/* прогресс */
+.progress{height:8px;border-radius:999px;background:var(--panel2);overflow:hidden}
+.progress > i{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,var(--violet),var(--cyan));
+  transition:width .45s cubic-bezier(.2,.8,.2,1);
+}
+.progress.full > i{background:linear-gradient(90deg,var(--emerald),#34d399)}
+.prog-row{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.prog-num{font-size:26px;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.prog-txt{font-size:13px;color:var(--muted)}
+
+/* ---------- задача ---------- */
+.task{
+  display:flex;align-items:flex-start;gap:12px;padding:12px 12px;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;
+  transition:background .2s,opacity .2s,transform .12s;
+}
+.task:active{transform:scale(.995)}
+.task.done{opacity:.55}
+.task.p2{border-left:3px solid var(--red)}
+.task.p1{border-left:3px solid var(--amber)}
+.tk-body{flex:1;min-width:0}
+.tk-title{font-size:15px;line-height:1.35;word-break:break-word}
+.task.done .tk-title{text-decoration:line-through;color:var(--muted)}
+.tk-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tag{font-size:11px;padding:3px 7px;border-radius:7px;background:var(--panel2);color:var(--muted);white-space:nowrap}
+.tag.time{color:var(--cyan)}
+.tag.rep{color:var(--violet)}
+.tag.late{color:#fecaca;background:rgba(239,68,68,.12)}
+.tk-note{font-size:12px;color:var(--dim);margin-top:4px;white-space:pre-wrap}
+
+/* галочка */
+.check{
+  flex-shrink:0;width:26px;height:26px;border-radius:9px;margin-top:1px;
+  border:2px solid var(--line2);background:transparent;position:relative;
+  transition:background .18s,border-color .18s,transform .12s;
+}
+.check:active{transform:scale(.88)}
+.check svg{position:absolute;inset:0;width:100%;height:100%;stroke:#fff;stroke-width:3;fill:none;
+  stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24}
+.check.on{background:var(--emerald);border-color:var(--emerald)}
+.check.on svg{stroke-dashoffset:0;transition:stroke-dashoffset .28s ease .04s}
+
+/* быстрый ввод */
+.quick{display:flex;gap:8px;margin-bottom:14px}
+.quick input{
+  flex:1;min-width:0;padding:13px 14px;border-radius:13px;background:var(--panel);
+  border:1px solid var(--line);color:var(--text);font-size:15px;outline:none;
+}
+.quick input:focus{border-color:var(--violet)}
+
+/* ---------- урок ---------- */
+.lesson{
+  display:flex;gap:12px;padding:12px;border-radius:14px;margin-bottom:8px;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--cyan);
+}
+.lesson.done{border-left-color:var(--emerald);opacity:.7}
+.lesson.cancelled{border-left-color:var(--dim);opacity:.5}
+.lesson.cancelled .ls-title{text-decoration:line-through}
+.ls-time{flex-shrink:0;width:52px;text-align:center}
+.ls-time b{display:block;font-size:16px;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.ls-time span{font-size:11px;color:var(--dim)}
+.ls-body{flex:1;min-width:0}
+.ls-title{font-size:15px;font-weight:600;word-break:break-word}
+.ls-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.ls-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.badge{font-size:11px;padding:3px 7px;border-radius:7px;background:var(--panel2);color:var(--muted)}
+.badge.moved{color:var(--amber)}
+.badge.soon{color:var(--cyan)}
+.badge.bell{color:var(--violet)}
+.badge.now{color:#fff;background:var(--emerald)}
+
+/* ---------- неделя ---------- */
+.day-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;margin-bottom:10px}
+.day-card.today{border-color:var(--violet);box-shadow:0 0 0 1px rgba(139,92,246,.25)}
+.day-card.past{opacity:.72}
+.day-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.day-name{font-weight:700;font-size:15px}
+.day-name small{font-weight:500;color:var(--muted);font-size:12px;margin-left:6px}
+.day-count{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.mini-prog{height:5px;border-radius:999px;background:var(--panel2);overflow:hidden;margin-bottom:10px}
+.mini-prog > i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--cyan));transition:width .4s}
+.mini-prog.full > i{background:var(--emerald)}
+.day-task{display:flex;align-items:center;gap:10px;padding:7px 0}
+.day-task .tk-title{font-size:14px}
+.day-task.done .tk-title{text-decoration:line-through;color:var(--dim)}
+.day-lesson{display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 8px;border-radius:9px;background:rgba(34,211,238,.07);margin-bottom:6px}
+.day-lesson b{font-variant-numeric:tabular-nums;color:var(--cyan);flex-shrink:0}
+.day-lesson span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.day-lesson.cancelled{opacity:.5;text-decoration:line-through}
+.check.sm{width:22px;height:22px;border-radius:7px;margin-top:0}
+
+/* ---------- лист (модалка) ---------- */
+#shade{position:fixed;inset:0;z-index:40;background:rgba(2,6,23,.72);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .2s}
+#shade.on{opacity:1;pointer-events:auto}
+#sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:50;max-height:92vh;overflow-y:auto;
+  background:var(--panel);border-top-left-radius:20px;border-top-right-radius:20px;
+  border-top:1px solid var(--line2);padding:8px 16px calc(var(--safe-b) + 20px);
+  transform:translateY(102%);transition:transform .26s cubic-bezier(.2,.8,.2,1);
+  -webkit-overflow-scrolling:touch;
+}
+#sheet.on{transform:translateY(0)}
+.grip{width:38px;height:4px;border-radius:999px;background:var(--line2);margin:6px auto 12px}
+.sheet-title{font-size:17px;font-weight:700;margin-bottom:14px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.field input,.field select,.field textarea{
+  width:100%;padding:12px 13px;border-radius:12px;background:var(--panel2);
+  border:1px solid var(--line2);color:var(--text);font-size:15px;outline:none;font-family:inherit;
+}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--violet)}
+.field textarea{resize:vertical;min-height:64px}
+.field-2{display:flex;gap:10px}
+.field-2 > .field{flex:1;min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{padding:9px 12px;border-radius:11px;background:var(--panel2);border:1px solid var(--line2);font-size:13px;font-weight:600;color:var(--muted)}
+.chip.on{background:var(--violet);border-color:var(--violet);color:#fff}
+.chip.wd{min-width:44px;text-align:center}
+.sheet-actions{display:flex;gap:10px;margin-top:16px}
+.sheet-actions .btn{flex:1}
+.list-btn{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  padding:14px 4px;border-bottom:1px solid var(--line);font-size:15px;
+}
+.list-btn:last-child{border-bottom:0}
+.list-btn .ico{width:24px;text-align:center;font-size:17px}
+.list-btn.danger{color:#fca5a5}
+
+/* тост */
+#toast{
+  position:fixed;left:50%;bottom:calc(var(--safe-b) + 78px);z-index:60;transform:translate(-50%,16px);
+  background:var(--panel2);border:1px solid var(--line2);border-radius:12px;
+  padding:11px 16px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;
+  max-width:90vw;text-align:center;
+}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.18)}100%{transform:scale(1)}}
+.pop{animation:pop .32s ease}
+</style>
+</head>
+<body>
+
+<div id="head">
+  <div class="head-row">
+    <div style="min-width:0">
+      <div class="head-title" id="hTitle">Сегодня</div>
+      <div class="head-sub" id="hSub"></div>
+    </div>
+    <div class="head-actions">
+      <button class="icon-btn" id="btnAdd" title="Добавить">＋</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <!-- ---------- ДЕНЬ ---------- -->
+  <section class="view on" id="v-day">
+    <div class="datenav">
+      <button class="icon-btn" data-nav="day:-1">‹</button>
+      <div class="title" id="dayTitle"></div>
+      <button class="icon-btn" data-nav="day:+1">›</button>
+    </div>
+    <div id="dayToday" style="margin-bottom:12px"></div>
+
+    <div class="card" id="dayProgress"></div>
+
+    <div class="quick">
+      <input id="quickInput" placeholder="Новая задача…" enterkeyhint="done">
+      <button class="btn primary" id="quickAdd">＋</button>
+    </div>
+
+    <div id="dayLessons"></div>
+    <div id="dayTasks"></div>
+  </section>
+
+  <!-- ---------- НЕДЕЛЯ ---------- -->
+  <section class="view" id="v-week">
+    <div class="datenav">
+      <button class="icon-btn" data-nav="week:-1">‹</button>
+      <div class="title" id="weekTitle"></div>
+      <button class="icon-btn" data-nav="week:+1">›</button>
+    </div>
+    <div id="weekToday" style="margin-bottom:12px"></div>
+    <div class="card" id="weekProgress"></div>
+    <div id="weekDays"></div>
+  </section>
+
+  <!-- ---------- РЕПЕТИТОРСТВО ---------- -->
+  <section class="view" id="v-tutor">
+    <div class="seg" id="tutorSeg" style="margin-bottom:12px">
+      <button data-tmode="week" class="on">Неделя</button>
+      <button data-tmode="next">Ближайшие</button>
+      <button data-tmode="students">Ученики</button>
+    </div>
+    <div id="tutorNav"></div>
+    <div id="tutorBody"></div>
+    <button class="btn primary wide" id="btnAddLesson" style="margin-top:14px">＋ Добавить занятие</button>
+  </section>
+
+  <!-- ---------- ЕЩЁ ---------- -->
+  <section class="view" id="v-more">
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <div>
+          <div style="font-weight:600">Напоминания</div>
+          <div class="head-sub" id="notifState"></div>
+        </div>
+        <button class="btn sm sp" id="btnNotif">Включить</button>
+      </div>
+      <div class="hr"></div>
+      <div class="field" style="margin:0">
+        <label>Напоминать о занятии за</label>
+        <select id="remindDefault">
+          <option value="0">не напоминать</option>
+          <option value="10">10 минут</option>
+          <option value="15">15 минут</option>
+          <option value="30">30 минут</option>
+          <option value="60">1 час</option>
+          <option value="120">2 часа</option>
+          <option value="1440">сутки</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:10px">Данные</div>
+      <button class="list-btn" id="btnExport"><span class="ico">⬇</span> Сохранить копию (файл)</button>
+      <button class="list-btn" id="btnImport"><span class="ico">⬆</span> Загрузить из файла</button>
+      <button class="list-btn danger" id="btnWipe"><span class="ico">✕</span> Удалить все данные</button>
+      <input type="file" id="fileInput" accept="application/json,.json" style="display:none">
+    </div>
+
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:8px">Как поставить на телефон</div>
+      <div class="head-sub" style="line-height:1.6">
+        <b>iPhone:</b> открыть в Safari → «Поделиться» → «На экран „Домой“».<br>
+        <b>Android:</b> Chrome сам предложит «Установить приложение», либо меню ⋮ → «Установить приложение».<br>
+        Приложение работает без интернета, данные хранятся только на этом устройстве.
+      </div>
+    </div>
+
+    <div class="empty" id="stats"></div>
+  </section>
+</main>
+
+<nav id="nav">
+  <button data-view="day" class="on"><span class="ico">☀</span>День</button>
+  <button data-view="week"><span class="ico">▦</span>Неделя</button>
+  <button data-view="tutor"><span class="ico">✎</span>Занятия</button>
+  <button data-view="more"><span class="ico">⚙</span>Ещё</button>
+</nav>
+
+<div id="shade"></div>
+<div id="sheet"><div class="grip"></div><div id="sheetBody"></div></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Планер: задачи на день и неделю + расписание репетиторства.
+   Всё хранится в localStorage этого устройства, сети не нужно.
+   ============================================================ */
+
+const KEY = "planner-v1";
+
+const DEFAULTS = {
+  tasks: [],      // задачи, в т.ч. повторяющиеся
+  lessons: [],    // занятия репетиторства (серии и разовые)
+  fired: {},      // какие напоминания уже показаны: ключ занятия -> 1
+  settings: { remindDefault: 30 }
+};
+
+let S = structuredClone(DEFAULTS);
+
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw) S = Object.assign(structuredClone(DEFAULTS), JSON.parse(raw));
+  }catch(e){ /* повреждённое хранилище не должно ронять приложение */ }
+  if(!Array.isArray(S.tasks)) S.tasks = [];
+  if(!Array.isArray(S.lessons)) S.lessons = [];
+  if(!S.fired || typeof S.fired !== "object") S.fired = {};
+  if(!S.settings) S.settings = { remindDefault: 30 };
+}
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch(e){ toast("Не удалось сохранить: нет места в хранилище"); }
+}
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+/* ---------- даты (везде строки YYYY-MM-DD по местному времени) ---------- */
+const WD    = ["вс","пн","вт","ср","чт","пт","сб"];
+const WDFUL = ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
+const MON   = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+
+const pad = n => String(n).padStart(2, "0");
+function ymd(d){ return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()); }
+function parseYmd(s){ const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); }
+function today(){ return ymd(new Date()); }
+function addDays(s, n){ const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); }
+function dow(s){ return parseYmd(s).getDay(); }                       // 0 = вс
+function mondayOf(s){ const d = dow(s); return addDays(s, d === 0 ? -6 : 1 - d); }
+function fmtDay(s){ const d = parseYmd(s); return d.getDate() + " " + MON[d.getMonth()]; }
+function fmtDayFull(s){
+  const d = parseYmd(s);
+  return WDFUL[d.getDay()] + ", " + d.getDate() + " " + MON[d.getMonth()];
+}
+function relDay(s){
+  const t = today();
+  if(s === t) return "Сегодня";
+  if(s === addDays(t, 1)) return "Завтра";
+  if(s === addDays(t, -1)) return "Вчера";
+  return null;
+}
+function nowHM(){ const d = new Date(); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+function hm2min(t){ if(!t) return -1; const [h,m] = t.split(":").map(Number); return h*60 + m; }
+function min2hm(v){ v = ((v % 1440) + 1440) % 1440; return pad(Math.floor(v/60)) + ":" + pad(v%60); }
+function dateTime(date, time){ const d = parseYmd(date); const [h,m] = (time||"00:00").split(":").map(Number); d.setHours(h, m, 0, 0); return d; }
+function plural(n, one, few, many){
+  const a = Math.abs(n) % 100, b = a % 10;
+  if(a > 10 && a < 20) return many;
+  if(b > 1 && b < 5) return few;
+  if(b === 1) return one;
+  return many;
+}
+
+/* ---------- задачи ----------
+   Повторяющаяся задача — одна запись; конкретный день это «повторение».
+   Выполнение хранится списком дат, пропуски (перенос, удаление одного дня)
+   тоже списком дат, поэтому серию можно менять, не теряя истории.            */
+const REPEATS = {
+  none:     "без повтора",
+  daily:    "каждый день",
+  weekdays: "по будням",
+  weekly:   "раз в неделю"
+};
+
+function taskOn(t, date){
+  if(date < t.date) return false;
+  if(t.until && date > t.until) return false;
+  if(t.skip && t.skip.includes(date)) return false;
+  switch(t.repeat){
+    case "daily":    return true;
+    case "weekdays": { const w = dow(date); return w >= 1 && w <= 5; }
+    case "weekly":   return dow(date) === dow(t.date);
+    default:         return date === t.date;
+  }
+}
+function tasksOn(date){
+  return S.tasks.filter(t => taskOn(t, date)).sort((a,b) => {
+    const ta = hm2min(a.time), tb = hm2min(b.time);
+    if(ta !== tb) return (ta < 0 ? 9999 : ta) - (tb < 0 ? 9999 : tb);
+    if(a.prio !== b.prio) return b.prio - a.prio;
+    return a.created - b.created;
+  });
+}
+const isDone   = (t, date) => !!(t.done && t.done.includes(date));
+function setDone(t, date, on){
+  t.done = t.done || [];
+  const i = t.done.indexOf(date);
+  if(on && i < 0) t.done.push(date);
+  if(!on && i >= 0) t.done.splice(i, 1);
+}
+function taskById(id){ return S.tasks.find(t => t.id === id); }
+
+/* Перенос одного дня из серии: день пропускаем, а копию ставим на новую дату. */
+function moveTask(t, from, to){
+  if(from === to) return;
+  if(t.repeat === "none"){
+    setDone(t, from, false);
+    t.date = to;
+  }else{
+    t.skip = t.skip || [];
+    if(!t.skip.includes(from)) t.skip.push(from);
+    setDone(t, from, false);
+    S.tasks.push({
+      id: uid(), title: t.title, note: t.note || "", date: to, time: t.time || "",
+      prio: t.prio || 0, repeat: "none", until: "", done: [], skip: [], created: Date.now()
+    });
+  }
+}
+function deleteTaskOccurrence(t, date){
+  if(t.repeat === "none"){
+    S.tasks = S.tasks.filter(x => x.id !== t.id);
+  }else{
+    t.skip = t.skip || [];
+    if(!t.skip.includes(date)) t.skip.push(date);
+  }
+}
+
+/* ---------- занятия ----------
+   Серия: дата первого занятия + «каждую неделю». Правки одного занятия
+   (перенос, отмена, «провёл») лежат в ov[исходная_дата].                     */
+function lessonOccurrences(from, to){
+  const out = [];
+  const scanFrom = addDays(from, -120), scanTo = addDays(to, 120);
+
+  const push = (l, base) => {
+    if(l.until && base > l.until) return;
+    const o = (l.ov && l.ov[base]) || null;
+    if(o && o.status === "deleted") return;
+    out.push({
+      lesson: l, base,
+      date:   (o && o.date) || base,
+      time:   (o && o.time) || l.time,
+      dur:    (o && o.dur)  || l.dur || 60,
+      status: (o && o.status) || "planned",
+      moved:  !!(o && o.date && o.date !== base),
+      key:    l.id + "@" + base
+    });
+  };
+
+  for(const l of S.lessons){
+    if(l.weekly){
+      let base = l.date;
+      if(base < scanFrom){
+        const steps = Math.floor((parseYmd(scanFrom) - parseYmd(base)) / 604800000);
+        base = addDays(base, steps * 7);
+        while(base < scanFrom) base = addDays(base, 7);
+      }
+      for(; base <= scanTo; base = addDays(base, 7)) push(l, base);
+    }else{
+      push(l, l.date);
+    }
+  }
+  return out
+    .filter(o => o.date >= from && o.date <= to)
+    .sort((a,b) => a.date === b.date ? hm2min(a.time) - hm2min(b.time) : (a.date < b.date ? -1 : 1));
+}
+function setOverride(o, patch){
+  const l = o.lesson;
+  l.ov = l.ov || {};
+  l.ov[o.base] = Object.assign({}, l.ov[o.base], patch);
+}
+function clearOverride(o){
+  if(o.lesson.ov) delete o.lesson.ov[o.base];
+}
+function lessonTitle(l){
+  return l.student + (l.subject ? " · " + l.subject : "");
+}
+
+/* ---------- мелкая механика интерфейса ---------- */
+let toastTimer = null;
+function toast(text){
+  const el = document.getElementById("toast");
+  el.textContent = text;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 2200);
+}
+function buzz(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
+
+const shade = document.getElementById("shade");
+const sheet = document.getElementById("sheet");
+const sheetBody = document.getElementById("sheetBody");
+function openSheet(html, after){
+  sheetBody.innerHTML = html;
+  shade.classList.add("on");
+  sheet.classList.add("on");
+  if(after) after(sheetBody);
+}
+function closeSheet(){
+  shade.classList.remove("on");
+  sheet.classList.remove("on");
+  setTimeout(() => { if(!sheet.classList.contains("on")) sheetBody.innerHTML = ""; }, 300);
+}
+shade.addEventListener("click", closeSheet);
+
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+const CHECK_SVG = '<svg viewBox="0 0 26 26"><path d="M6 13.5l4.5 4.5L20 8.5"/></svg>';
+
+/* ============================================================
+   Состояние экрана
+   ============================================================ */
+let view      = "day";
+let curDay    = today();
+let curWeek   = mondayOf(today());
+let tutorMode = "week";
+let tutorWeek = mondayOf(today());
+
+const $  = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+function setView(v){
+  view = v;
+  $$("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === v));
+  $$(".view").forEach(s => s.classList.toggle("on", s.id === "v-" + v));
+  window.scrollTo(0, 0);
+  render();
+}
+
+/* ============================================================
+   Разметка кусочков
+   ============================================================ */
+function taskRow(t, date, small){
+  const done = isDone(t, date);
+  const cls  = ["task", done ? "done" : "", t.prio === 2 ? "p2" : (t.prio === 1 ? "p1" : "")].join(" ");
+  const meta = [];
+  if(t.time) meta.push('<span class="tag time">' + esc(t.time) + "</span>");
+  if(t.repeat && t.repeat !== "none") meta.push('<span class="tag rep">↻ ' + REPEATS[t.repeat] + "</span>");
+  if(t.prio === 2) meta.push('<span class="tag late">важно</span>');
+  return '<div class="' + cls + '" data-task="' + t.id + '" data-date="' + date + '">' +
+      '<button class="check ' + (done ? "on" : "") + '" data-toggle>' + CHECK_SVG + "</button>" +
+      '<div class="tk-body" data-open>' +
+        '<div class="tk-title">' + esc(t.title) + "</div>" +
+        (meta.length ? '<div class="tk-meta">' + meta.join("") + "</div>" : "") +
+        (t.note ? '<div class="tk-note">' + esc(t.note) + "</div>" : "") +
+      "</div></div>";
+}
+
+function lessonRow(o){
+  const l = o.lesson;
+  const end = min2hm(hm2min(o.time) + o.dur);
+  const badges = [];
+  if(o.moved)  badges.push('<span class="badge moved">перенесено с ' + fmtDay(o.base) + "</span>");
+  if(o.status === "cancelled") badges.push('<span class="badge">отменено</span>');
+  if(o.status === "done")      badges.push('<span class="badge">проведено</span>');
+  if(l.weekly) badges.push('<span class="badge">↻ еженедельно</span>');
+  if(l.remind) badges.push('<span class="badge bell">🔔 за ' + remindLabel(l.remind) + "</span>");
+  if(l.price)  badges.push('<span class="badge">' + esc(l.price) + " ₽</span>");
+  if(isNow(o))  badges.push('<span class="badge now">идёт сейчас</span>');
+  else if(isSoon(o)) badges.push('<span class="badge soon">скоро</span>');
+
+  const sub = [];
+  if(l.place) sub.push(esc(l.place));
+  sub.push(o.dur + " мин");
+  if(l.note) sub.push(esc(l.note));
+
+  return '<div class="lesson ' + (o.status === "done" ? "done" : o.status === "cancelled" ? "cancelled" : "") +
+      '" data-lesson="' + l.id + '" data-base="' + o.base + '">' +
+      '<div class="ls-time"><b>' + esc(o.time) + "</b><span>" + esc(end) + "</span></div>" +
+      '<div class="ls-body">' +
+        '<div class="ls-title">' + esc(lessonTitle(l)) + "</div>" +
+        '<div class="ls-sub">' + sub.join(" · ") + "</div>" +
+        (badges.length ? '<div class="ls-badges">' + badges.join("") + "</div>" : "") +
+      "</div></div>";
+}
+
+function remindLabel(m){
+  if(m >= 1440) return (m / 1440) + " " + plural(m / 1440, "сутки", "суток", "суток");
+  if(m >= 60)   return (m / 60) + " " + plural(m / 60, "час", "часа", "часов");
+  return m + " мин";
+}
+function isNow(o){
+  const start = dateTime(o.date, o.time), end = new Date(start.getTime() + o.dur * 60000);
+  const n = new Date();
+  return o.status === "planned" && n >= start && n <= end;
+}
+function isSoon(o){
+  const start = dateTime(o.date, o.time), n = new Date();
+  const diff = (start - n) / 60000;
+  return o.status === "planned" && diff > 0 && diff <= 120;
+}
+function progressCard(dates, label){
+  let total = 0, done = 0;
+  dates.forEach(d => tasksOn(d).forEach(t => { total++; if(isDone(t, d)) done++; }));
+  const pct = total ? Math.round(done / total * 100) : 0;
+  const lessons = lessonOccurrences(dates[0], dates[dates.length - 1]).filter(o => o.status !== "cancelled");
+  const sub = total
+    ? done + " из " + total + " " + plural(total, "задачи", "задач", "задач") + " · " + pct + "%"
+    : "задач пока нет";
+  const lsub = lessons.length
+    ? " · " + lessons.length + " " + plural(lessons.length, "занятие", "занятия", "занятий")
+    : "";
+  return '<div class="prog-row"><div class="prog-num">' + pct + '%</div>' +
+      '<div class="prog-txt">' + label + "<br>" + sub + lsub + "</div></div>" +
+      '<div class="progress ' + (total && done === total ? "full" : "") + '"><i style="width:' + pct + '%"></i></div>' +
+      (total && done === total ? '<div class="head-sub" style="margin-top:8px;color:var(--emerald)">Всё сделано 🎉</div>' : "");
+}
+
+/* ============================================================
+   Экран «День»
+   ============================================================ */
+function renderDay(){
+  const rel = relDay(curDay);
+  $("#dayTitle").innerHTML = (rel || fmtDay(curDay)) +
+      "<small>" + (rel ? fmtDayFull(curDay) : WDFUL[dow(curDay)]) + "</small>";
+  $("#dayToday").innerHTML = curDay === today()
+    ? ""
+    : '<button class="btn sm" data-goto="today">← Вернуться к сегодня</button>';
+  $("#dayProgress").innerHTML = progressCard([curDay], rel || fmtDay(curDay));
+
+  const lessons = lessonOccurrences(curDay, curDay);
+  $("#dayLessons").innerHTML = lessons.length
+    ? '<div class="sect-title">Занятия</div>' + lessons.map(lessonRow).join("")
+    : "";
+
+  const tasks = tasksOn(curDay);
+  let html = "";
+
+  // просроченное показываем только на сегодня — иначе оно мешает планировать
+  if(curDay === today()){
+    const over = S.tasks.filter(t =>
+      t.repeat === "none" && t.date < curDay && !isDone(t, t.date) && !(t.skip || []).includes(t.date));
+    if(over.length){
+      html += '<div class="sect-title">Просрочено · ' + over.length + "</div>" +
+        over.sort((a,b) => a.date < b.date ? -1 : 1).map(t =>
+          taskRow(Object.assign({}, t, { time: t.time }), t.date)).join("") +
+        '<button class="btn sm wide" data-act="pull-overdue" style="margin:2px 0 4px">Перенести всё на сегодня</button>';
+    }
+  }
+
+  html += '<div class="sect-title">Задачи</div>';
+  html += tasks.length
+    ? tasks.map(t => taskRow(t, curDay)).join("")
+    : '<div class="empty">На этот день задач нет.<br>Добавьте первую в поле выше.</div>';
+  $("#dayTasks").innerHTML = html;
+}
+
+/* ============================================================
+   Экран «Неделя»
+   ============================================================ */
+function renderWeek(){
+  const days = Array.from({ length: 7 }, (_, i) => addDays(curWeek, i));
+  const last = days[6];
+  const sameMonth = parseYmd(curWeek).getMonth() === parseYmd(last).getMonth();
+  const label = sameMonth
+    ? parseYmd(curWeek).getDate() + "–" + fmtDay(last)
+    : fmtDay(curWeek) + " – " + fmtDay(last);
+  const isThis = curWeek === mondayOf(today());
+  $("#weekTitle").innerHTML = (isThis ? "Эта неделя" : "Неделя") + "<small>" + label + "</small>";
+  $("#weekToday").innerHTML = isThis ? "" : '<button class="btn sm" data-goto="thisweek">← Текущая неделя</button>';
+  $("#weekProgress").innerHTML = progressCard(days, isThis ? "Эта неделя" : label);
+
+  $("#weekDays").innerHTML = days.map(d => {
+    const tasks = tasksOn(d);
+    const done  = tasks.filter(t => isDone(t, d)).length;
+    const pct   = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+    const lessons = lessonOccurrences(d, d);
+    const cls = ["day-card", d === today() ? "today" : "", d < today() ? "past" : ""].join(" ");
+
+    const rows = tasks.map(t =>
+      '<div class="day-task ' + (isDone(t, d) ? "done" : "") + '" data-task="' + t.id + '" data-date="' + d + '">' +
+        '<button class="check sm ' + (isDone(t, d) ? "on" : "") + '" data-toggle>' + CHECK_SVG + "</button>" +
+        '<div class="tk-body" data-open><div class="tk-title">' + esc(t.title) +
+          (t.time ? ' <span class="tag time">' + esc(t.time) + "</span>" : "") + "</div></div></div>").join("");
+
+    const ls = lessons.map(o =>
+      '<div class="day-lesson ' + (o.status === "cancelled" ? "cancelled" : "") +
+        '" data-lesson="' + o.lesson.id + '" data-base="' + o.base + '">' +
+        "<b>" + esc(o.time) + "</b><span>" + esc(lessonTitle(o.lesson)) + "</span></div>").join("");
+
+    return '<div class="' + cls + '">' +
+      '<div class="day-head">' +
+        '<div class="day-name" data-goto="day:' + d + '">' + WDFUL[dow(d)][0].toUpperCase() + WDFUL[dow(d)].slice(1) +
+          "<small>" + fmtDay(d) + "</small></div>" +
+        '<div class="day-count sp">' + (tasks.length ? done + "/" + tasks.length : "—") + "</div>" +
+        '<button class="icon-btn" style="width:30px;height:30px;font-size:15px" data-act="add-task:' + d + '">＋</button>' +
+      "</div>" +
+      (tasks.length ? '<div class="mini-prog ' + (pct === 100 ? "full" : "") + '"><i style="width:' + pct + '%"></i></div>' : "") +
+      ls + rows +
+      (!tasks.length && !lessons.length ? '<div class="dim" style="font-size:13px;padding:2px 0 4px">свободно</div>' : "") +
+      "</div>";
+  }).join("");
+}
+
+/* ============================================================
+   Экран «Занятия» (репетиторство)
+   ============================================================ */
+function renderTutor(){
+  $$("#tutorSeg button").forEach(b => b.classList.toggle("on", b.dataset.tmode === tutorMode));
+  const nav = $("#tutorNav"), body = $("#tutorBody");
+
+  if(tutorMode === "week"){
+    const days = Array.from({ length: 7 }, (_, i) => addDays(tutorWeek, i));
+    const isThis = tutorWeek === mondayOf(today());
+    nav.innerHTML =
+      '<div class="datenav">' +
+        '<button class="icon-btn" data-nav="tweek:-1">‹</button>' +
+        '<div class="title">' + (isThis ? "Эта неделя" : "Неделя") +
+          "<small>" + fmtDay(tutorWeek) + " – " + fmtDay(days[6]) + "</small></div>" +
+        '<button class="icon-btn" data-nav="tweek:+1">›</button>' +
+      "</div>" +
+      (isThis ? "" : '<button class="btn sm" data-goto="tthisweek" style="margin-bottom:12px">← Текущая неделя</button>');
+
+    const week = lessonOccurrences(days[0], days[6]);
+    const active = week.filter(o => o.status !== "cancelled");
+    const minutes = active.reduce((s, o) => s + o.dur, 0);
+    const money = active.reduce((s, o) => s + (Number(o.lesson.price) || 0), 0);
+
+    let html = '<div class="card"><div class="prog-row">' +
+      '<div class="prog-num">' + active.length + "</div>" +
+      '<div class="prog-txt">' + plural(active.length, "занятие", "занятия", "занятий") + " за неделю<br>" +
+        (minutes ? Math.round(minutes / 60 * 10) / 10 + " ч" : "0 ч") +
+        (money ? " · " + money.toLocaleString("ru-RU") + " ₽" : "") + "</div></div></div>";
+
+    html += days.map(d => {
+      const list = week.filter(o => o.date === d);
+      if(!list.length) return "";
+      const rel = relDay(d);
+      return '<div class="sect-title">' + (rel ? rel + " · " : "") +
+        WDFUL[dow(d)] + ", " + fmtDay(d) + "</div>" + list.map(lessonRow).join("");
+    }).join("");
+
+    if(!week.length) html += '<div class="empty">На этой неделе занятий нет.<br>Добавьте занятие кнопкой внизу — можно сразу сделать его еженедельным.</div>';
+    body.innerHTML = html;
+    return;
+  }
+
+  if(tutorMode === "next"){
+    nav.innerHTML = "";
+    const from = today();
+    const list = lessonOccurrences(from, addDays(from, 30))
+      .filter(o => o.status === "planned")
+      .filter(o => o.date > from || hm2min(o.time) + o.dur >= hm2min(nowHM()));
+    if(!list.length){ body.innerHTML = '<div class="empty">Ближайших занятий нет.</div>'; return; }
+    let html = "", day = "";
+    list.slice(0, 40).forEach(o => {
+      if(o.date !== day){
+        day = o.date;
+        const rel = relDay(day);
+        html += '<div class="sect-title">' + (rel ? rel + " · " : "") + WDFUL[dow(day)] + ", " + fmtDay(day) + "</div>";
+      }
+      html += lessonRow(o);
+    });
+    body.innerHTML = html;
+    return;
+  }
+
+  // Ученики: сводка по каждому — сколько и когда
+  nav.innerHTML = "";
+  const names = {};
+  const weekFrom = mondayOf(today()), weekTo = addDays(weekFrom, 6);
+  const monthFrom = today().slice(0, 8) + "01";
+  const monthTo = addDays(addDays(monthFrom, 31).slice(0, 8) + "01", -1);
+
+  S.lessons.forEach(l => {
+    const n = l.student || "Без имени";
+    names[n] = names[n] || { name: n, subjects: new Set(), week: 0, month: 0, done: 0, money: 0, next: null };
+  });
+  lessonOccurrences(addDays(today(), -400), addDays(today(), 400)).forEach(o => {
+    const r = names[o.lesson.student || "Без имени"];
+    if(!r) return;
+    if(o.lesson.subject) r.subjects.add(o.lesson.subject);
+    if(o.status === "cancelled") return;
+    if(o.date >= weekFrom && o.date <= weekTo) r.week++;
+    if(o.date >= monthFrom && o.date <= monthTo){
+      r.month++;
+      r.money += Number(o.lesson.price) || 0;
+    }
+    if(o.status === "done" || o.date < today()) r.done++;
+    if(o.status === "planned" && o.date >= today() && (!r.next || o.date + o.time < r.next.date + r.next.time)) r.next = o;
+  });
+
+  const rows = Object.values(names).sort((a,b) => b.week - a.week || a.name.localeCompare(b.name));
+  if(!rows.length){ body.innerHTML = '<div class="empty">Учеников пока нет.</div>'; return; }
+  body.innerHTML = rows.map(r =>
+    '<div class="card" style="padding:13px 14px">' +
+      '<div class="row"><div style="font-weight:700;font-size:15px">' + esc(r.name) + "</div>" +
+      '<div class="sp dim" style="font-size:12px">' + (r.subjects.size ? esc(Array.from(r.subjects).join(", ")) : "") + "</div></div>" +
+      '<div class="head-sub" style="margin-top:6px">' +
+        "на этой неделе: " + r.week + " · в этом месяце: " + r.month +
+        (r.money ? " · " + r.money.toLocaleString("ru-RU") + " ₽" : "") + "</div>" +
+      '<div class="head-sub" style="margin-top:3px">' +
+        (r.next ? "ближайшее: " + (relDay(r.next.date) || fmtDay(r.next.date)) + ", " + r.next.time
+                : "запланированных занятий нет") + "</div>" +
+    "</div>").join("");
+}
+
+/* ============================================================
+   Экран «Ещё»
+   ============================================================ */
+function renderMore(){
+  const p = ("Notification" in window) ? Notification.permission : "unsupported";
+  const st = $("#notifState"), btn = $("#btnNotif");
+  if(p === "unsupported"){
+    st.textContent = "Браузер не поддерживает уведомления";
+    btn.style.display = "none";
+  }else if(p === "granted"){
+    st.textContent = "Включены. Напомним, пока приложение открыто или свёрнуто.";
+    btn.textContent = "Проверить";
+  }else if(p === "denied"){
+    st.textContent = "Запрещены в настройках браузера — разрешите их для этого сайта.";
+    btn.textContent = "Ещё раз";
+  }else{
+    st.textContent = "Выключены";
+    btn.textContent = "Включить";
+  }
+  $("#remindDefault").value = String(S.settings.remindDefault);
+
+  const total = S.tasks.length, lessons = S.lessons.length;
+  const doneAll = S.tasks.reduce((s, t) => s + (t.done ? t.done.length : 0), 0);
+  $("#stats").innerHTML = "Задач: " + total + " · выполнений: " + doneAll + " · занятий: " + lessons +
+    "<br>Данные хранятся только на этом устройстве.<br>Планер · версия 1.0";
+}
+
+/* ============================================================
+   Общий рендер
+   ============================================================ */
+function render(){
+  const titles = { day: "Сегодня", week: "Неделя", tutor: "Репетиторство", more: "Ещё" };
+  $("#hTitle").textContent = titles[view];
+  const t = today();
+  const todayTasks = tasksOn(t);
+  const doneToday = todayTasks.filter(x => isDone(x, t)).length;
+  const nextLesson = lessonOccurrences(t, addDays(t, 14)).find(o =>
+    o.status === "planned" && (o.date > t || hm2min(o.time) + o.dur >= hm2min(nowHM())));
+  $("#hSub").textContent =
+    (todayTasks.length ? "задачи " + doneToday + "/" + todayTasks.length : "задач на сегодня нет") +
+    (nextLesson ? " · занятие " + (relDay(nextLesson.date) || fmtDay(nextLesson.date)) + " в " + nextLesson.time : "");
+  $("#btnAdd").textContent = view === "tutor" ? "＋" : "＋";
+
+  if(view === "day")   renderDay();
+  if(view === "week")  renderWeek();
+  if(view === "tutor") renderTutor();
+  if(view === "more")  renderMore();
+}
+
+/* ============================================================
+   Редактор задачи
+   ============================================================ */
+function taskSheet(task, date){
+  const isNew = !task;
+  const t = task || { id: "", title: "", note: "", date: date || curDay, time: "", prio: 0, repeat: "none", until: "" };
+  const d = date || t.date;
+  const prios = [[0, "обычная"], [1, "нужная"], [2, "важная"]];
+
+  const quick = isNew ? "" :
+    '<div class="field"><label>Перенести</label><div class="chips">' +
+      '<button class="chip" data-move="' + today() + '">Сегодня</button>' +
+      '<button class="chip" data-move="' + addDays(today(), 1) + '">Завтра</button>' +
+      '<button class="chip" data-move="' + addDays(d, 1) + '">+1 день</button>' +
+      '<button class="chip" data-move="' + addDays(d, 7) + '">+1 неделя</button>' +
+    "</div></div>";
+
+  openSheet(
+    '<div class="sheet-title">' + (isNew ? "Новая задача" : "Задача") + "</div>" +
+    '<div class="field"><label>Что сделать</label>' +
+      '<input id="f-title" value="' + esc(t.title) + '" placeholder="Например: проверить тетради" enterkeyhint="done"></div>' +
+    '<div class="field-2">' +
+      '<div class="field"><label>Дата</label><input id="f-date" type="date" value="' + esc(d) + '"></div>' +
+      '<div class="field"><label>Время (не обязательно)</label><input id="f-time" type="time" value="' + esc(t.time || "") + '"></div>' +
+    "</div>" +
+    '<div class="field"><label>Важность</label><div class="chips" id="f-prio">' +
+      prios.map(p => '<button class="chip ' + (t.prio === p[0] ? "on" : "") + '" data-prio="' + p[0] + '">' + p[1] + "</button>").join("") +
+    "</div></div>" +
+    '<div class="field"><label>Повтор</label><select id="f-repeat">' +
+      Object.keys(REPEATS).map(k =>
+        '<option value="' + k + '"' + (t.repeat === k ? " selected" : "") + ">" + REPEATS[k] + "</option>").join("") +
+    "</select></div>" +
+    '<div class="field" id="f-until-wrap" style="' + (t.repeat === "none" ? "display:none" : "") + '">' +
+      '<label>Повторять до (не обязательно)</label><input id="f-until" type="date" value="' + esc(t.until || "") + '"></div>' +
+    '<div class="field"><label>Заметка</label><textarea id="f-note" placeholder="детали, ссылки, материалы">' + esc(t.note || "") + "</textarea></div>" +
+    quick +
+    '<div class="sheet-actions">' +
+      (isNew ? "" : '<button class="btn danger" id="f-del">Удалить</button>') +
+      '<button class="btn primary" id="f-save">' + (isNew ? "Добавить" : "Сохранить") + "</button>" +
+    "</div>",
+  body => {
+    const title = body.querySelector("#f-title");
+    title.focus();
+    body.querySelector("#f-repeat").addEventListener("change", e => {
+      body.querySelector("#f-until-wrap").style.display = e.target.value === "none" ? "none" : "";
+    });
+    body.querySelector("#f-prio").addEventListener("click", e => {
+      const b = e.target.closest("[data-prio]"); if(!b) return;
+      body.querySelectorAll("#f-prio .chip").forEach(c => c.classList.remove("on"));
+      b.classList.add("on");
+    });
+    title.addEventListener("keydown", e => { if(e.key === "Enter") body.querySelector("#f-save").click(); });
+
+    body.querySelectorAll("[data-move]").forEach(b => b.addEventListener("click", () => {
+      moveTask(task, d, b.dataset.move);
+      save(); closeSheet(); render();
+      toast("Перенесено на " + (relDay(b.dataset.move) || fmtDay(b.dataset.move)).toLowerCase());
+    }));
+
+    body.querySelector("#f-save").addEventListener("click", () => {
+      const v = title.value.trim();
+      if(!v){ title.focus(); toast("Впишите название задачи"); return; }
+      const repeat = body.querySelector("#f-repeat").value;
+      const patch = {
+        title: v,
+        note:  body.querySelector("#f-note").value.trim(),
+        date:  body.querySelector("#f-date").value || today(),
+        time:  body.querySelector("#f-time").value || "",
+        prio:  Number(body.querySelector("#f-prio .chip.on").dataset.prio),
+        repeat: repeat,
+        until: repeat === "none" ? "" : (body.querySelector("#f-until").value || "")
+      };
+      if(isNew){
+        S.tasks.push(Object.assign({ id: uid(), done: [], skip: [], created: Date.now() }, patch));
+        toast("Задача добавлена");
+      }else{
+        // сдвиг даты у серии не должен утащить за собой отметки прошлых дней
+        if(patch.date !== task.date && task.repeat !== "none") task.done = [];
+        Object.assign(task, patch);
+        toast("Сохранено");
+      }
+      save(); closeSheet(); render();
+    });
+
+    const del = body.querySelector("#f-del");
+    if(del) del.addEventListener("click", () => {
+      if(task.repeat !== "none"){
+        deleteSeriesSheet(task, d);
+        return;
+      }
+      if(!confirm("Удалить задачу «" + task.title + "»?")) return;
+      S.tasks = S.tasks.filter(x => x.id !== task.id);
+      save(); closeSheet(); render(); toast("Задача удалена");
+    });
+  });
+}
+
+function deleteSeriesSheet(task, date){
+  openSheet(
+    '<div class="sheet-title">Удалить повторяющуюся задачу</div>' +
+    '<button class="list-btn" id="d-one"><span class="ico">1</span> Только ' + fmtDay(date) + "</button>" +
+    '<button class="list-btn danger" id="d-all"><span class="ico">↻</span> Всю серию</button>' +
+    '<div class="sheet-actions"><button class="btn" id="d-cancel">Отмена</button></div>',
+  body => {
+    body.querySelector("#d-one").addEventListener("click", () => {
+      deleteTaskOccurrence(task, date);
+      save(); closeSheet(); render(); toast("День удалён из серии");
+    });
+    body.querySelector("#d-all").addEventListener("click", () => {
+      S.tasks = S.tasks.filter(x => x.id !== task.id);
+      save(); closeSheet(); render(); toast("Серия удалена");
+    });
+    body.querySelector("#d-cancel").addEventListener("click", closeSheet);
+  });
+}
+
+/* ============================================================
+   Редактор занятия
+   ============================================================ */
+const REMINDS = [[0, "не напоминать"], [10, "за 10 минут"], [15, "за 15 минут"], [30, "за 30 минут"],
+                 [60, "за час"], [120, "за 2 часа"], [1440, "за сутки"]];
+
+function lessonSheet(lesson, presetDate){
+  const isNew = !lesson;
+  const l = lesson || {
+    student: "", subject: "", date: presetDate || curDay, time: "16:00", dur: 60,
+    place: "", price: "", weekly: true, until: "", remind: S.settings.remindDefault, note: ""
+  };
+  openSheet(
+    '<div class="sheet-title">' + (isNew ? "Новое занятие" : "Занятие") + "</div>" +
+    '<div class="field"><label>Ученик</label><input id="l-student" value="' + esc(l.student) + '" placeholder="Имя ученика"></div>' +
+    '<div class="field"><label>Предмет</label><input id="l-subject" value="' + esc(l.subject) + '" placeholder="Математика, английский…"></div>' +
+    '<div class="field-2">' +
+      '<div class="field"><label>Дата</label><input id="l-date" type="date" value="' + esc(l.date) + '"></div>' +
+      '<div class="field"><label>Начало</label><input id="l-time" type="time" value="' + esc(l.time) + '"></div>' +
+    "</div>" +
+    '<div class="field-2">' +
+      '<div class="field"><label>Длительность, мин</label><input id="l-dur" type="number" min="15" step="15" value="' + (l.dur || 60) + '"></div>' +
+      '<div class="field"><label>Стоимость, ₽</label><input id="l-price" type="number" min="0" step="50" value="' + esc(l.price || "") + '" placeholder="—"></div>' +
+    "</div>" +
+    '<div class="field"><label>Повтор</label><div class="chips" id="l-weekly">' +
+      '<button class="chip ' + (l.weekly ? "on" : "") + '" data-weekly="1">↻ каждую неделю</button>' +
+      '<button class="chip ' + (l.weekly ? "" : "on") + '" data-weekly="0">один раз</button>' +
+    "</div></div>" +
+    '<div class="field" id="l-until-wrap" style="' + (l.weekly ? "" : "display:none") + '">' +
+      '<label>Занимаемся до (не обязательно)</label><input id="l-until" type="date" value="' + esc(l.until || "") + '"></div>' +
+    '<div class="field"><label>Напоминание</label><select id="l-remind">' +
+      REMINDS.map(r => '<option value="' + r[0] + '"' + (Number(l.remind) === r[0] ? " selected" : "") + ">" + r[1] + "</option>").join("") +
+    "</select></div>" +
+    '<div class="field"><label>Место / ссылка</label><input id="l-place" value="' + esc(l.place || "") + '" placeholder="дома, Zoom, у ученика"></div>' +
+    '<div class="field"><label>Заметка</label><textarea id="l-note" placeholder="что разбираем, домашнее задание">' + esc(l.note || "") + "</textarea></div>" +
+    '<div class="sheet-actions">' +
+      (isNew ? "" : '<button class="btn danger" id="l-del">Удалить</button>') +
+      '<button class="btn primary" id="l-save">' + (isNew ? "Добавить" : "Сохранить") + "</button>" +
+    "</div>",
+  body => {
+    const student = body.querySelector("#l-student");
+    student.focus();
+    body.querySelector("#l-weekly").addEventListener("click", e => {
+      const b = e.target.closest("[data-weekly]"); if(!b) return;
+      body.querySelectorAll("#l-weekly .chip").forEach(c => c.classList.remove("on"));
+      b.classList.add("on");
+      body.querySelector("#l-until-wrap").style.display = b.dataset.weekly === "1" ? "" : "none";
+    });
+    body.querySelector("#l-save").addEventListener("click", () => {
+      const name = student.value.trim();
+      if(!name){ student.focus(); toast("Впишите имя ученика"); return; }
+      const weekly = body.querySelector("#l-weekly .chip.on").dataset.weekly === "1";
+      const patch = {
+        student: name,
+        subject: body.querySelector("#l-subject").value.trim(),
+        date:    body.querySelector("#l-date").value || today(),
+        time:    body.querySelector("#l-time").value || "16:00",
+        dur:     Math.max(15, Number(body.querySelector("#l-dur").value) || 60),
+        price:   body.querySelector("#l-price").value.trim(),
+        place:   body.querySelector("#l-place").value.trim(),
+        note:    body.querySelector("#l-note").value.trim(),
+        weekly:  weekly,
+        until:   weekly ? (body.querySelector("#l-until").value || "") : "",
+        remind:  Number(body.querySelector("#l-remind").value)
+      };
+      if(isNew){
+        S.lessons.push(Object.assign({ id: uid(), ov: {}, created: Date.now() }, patch));
+        toast("Занятие добавлено");
+      }else{
+        Object.assign(lesson, patch);
+        toast("Сохранено");
+      }
+      save(); closeSheet(); render();
+    });
+    const del = body.querySelector("#l-del");
+    if(del) del.addEventListener("click", () => {
+      if(!confirm("Удалить занятие с учеником " + lesson.student + (lesson.weekly ? " и всю серию" : "") + "?")) return;
+      S.lessons = S.lessons.filter(x => x.id !== lesson.id);
+      save(); closeSheet(); render(); toast("Занятие удалено");
+    });
+  });
+}
+
+/* ============================================================
+   Действия с конкретным занятием: перенос, отмена, «провёл»
+   ============================================================ */
+function lessonActions(o){
+  const l = o.lesson;
+  const when = (relDay(o.date) || fmtDay(o.date)) + ", " + o.time;
+  openSheet(
+    '<div class="sheet-title">' + esc(lessonTitle(l)) + '<div class="head-sub" style="font-weight:400;margin-top:4px">' + when + "</div></div>" +
+    '<button class="list-btn" data-a="move"><span class="ico">→</span> Перенести это занятие</button>' +
+    (o.status === "done"
+      ? '<button class="list-btn" data-a="undone"><span class="ico">↺</span> Снять отметку «проведено»</button>'
+      : '<button class="list-btn" data-a="done"><span class="ico">✓</span> Отметить проведённым</button>') +
+    (o.status === "cancelled"
+      ? '<button class="list-btn" data-a="restore"><span class="ico">↺</span> Вернуть занятие</button>'
+      : '<button class="list-btn" data-a="cancel"><span class="ico">⃠</span> Отменить это занятие</button>') +
+    (o.moved ? '<button class="list-btn" data-a="reset"><span class="ico">↺</span> Вернуть на ' + fmtDay(o.base) + "</button>" : "") +
+    '<button class="list-btn" data-a="edit"><span class="ico">✎</span> Изменить' + (l.weekly ? " серию" : "") + "</button>" +
+    (l.weekly ? '<button class="list-btn danger" data-a="stop"><span class="ico">■</span> Закончить занятия с ' + fmtDay(o.base) + "</button>" : "") +
+    '<button class="list-btn danger" data-a="delete"><span class="ico">✕</span> Удалить' + (l.weekly ? " только это" : "") + "</button>" +
+    '<div class="sheet-actions"><button class="btn" data-a="close">Закрыть</button></div>',
+  body => {
+    body.addEventListener("click", e => {
+      const b = e.target.closest("[data-a]"); if(!b) return;
+      const a = b.dataset.a;
+
+      if(a === "close"){ closeSheet(); return; }
+      if(a === "edit"){ lessonSheet(l); return; }
+      if(a === "move"){ moveLessonSheet(o); return; }
+
+      if(a === "done")    setOverride(o, { status: "done" });
+      if(a === "undone")  setOverride(o, { status: "planned" });
+      if(a === "cancel")  setOverride(o, { status: "cancelled" });
+      if(a === "restore") setOverride(o, { status: "planned" });
+      if(a === "reset")   setOverride(o, { date: null, time: null });
+      if(a === "stop"){
+        // серия остаётся в истории, но новых занятий больше не появится
+        l.until = addDays(o.base, -1);
+      }
+      if(a === "delete"){
+        if(l.weekly) setOverride(o, { status: "deleted" });
+        else S.lessons = S.lessons.filter(x => x.id !== l.id);
+      }
+      if(a === "reset"){ // null-поля в ov мешают, чистим их
+        const ov = l.ov[o.base];
+        if(ov){ delete ov.date; delete ov.time; if(!Object.keys(ov).length) clearOverride(o); }
+      }
+      save(); closeSheet(); render();
+      const msg = { done: "Отмечено как проведённое", undone: "Отметка снята", cancel: "Занятие отменено",
+                    restore: "Занятие возвращено", reset: "Дата возвращена", stop: "Серия закрыта",
+                    delete: "Занятие удалено" }[a];
+      if(msg) toast(msg);
+    });
+  });
+}
+
+function moveLessonSheet(o){
+  const l = o.lesson;
+  const opts = [
+    ["Завтра", addDays(today(), 1)],
+    ["Через день", addDays(o.date, 1)],
+    ["Через неделю", addDays(o.date, 7)]
+  ];
+  openSheet(
+    '<div class="sheet-title">Перенести занятие<div class="head-sub" style="font-weight:400;margin-top:4px">' +
+      esc(lessonTitle(l)) + " · " + fmtDay(o.date) + ", " + o.time + "</div></div>" +
+    '<div class="field"><label>Быстро</label><div class="chips" id="m-quick">' +
+      opts.map(x => '<button class="chip" data-d="' + x[1] + '">' + x[0] + "</button>").join("") +
+    "</div></div>" +
+    '<div class="field-2">' +
+      '<div class="field"><label>Новая дата</label><input id="m-date" type="date" value="' + esc(o.date) + '"></div>' +
+      '<div class="field"><label>Новое время</label><input id="m-time" type="time" value="' + esc(o.time) + '"></div>' +
+    "</div>" +
+    (l.weekly ? '<div class="head-sub" style="margin-bottom:12px">Переносится только это занятие, остальные в серии остаются на своих местах.</div>' : "") +
+    '<div class="sheet-actions">' +
+      '<button class="btn" id="m-cancel">Отмена</button>' +
+      '<button class="btn primary" id="m-ok">Перенести</button>' +
+    "</div>",
+  body => {
+    const apply = (date, time) => {
+      setOverride(o, { date: date, time: time, status: o.status === "cancelled" ? "planned" : o.status });
+      delete S.fired[o.key];                    // напоминание должно сработать на новое время
+      save(); closeSheet(); render();
+      toast("Перенесено на " + (relDay(date) || fmtDay(date)).toLowerCase() + ", " + time);
+    };
+    body.querySelector("#m-quick").addEventListener("click", e => {
+      const b = e.target.closest("[data-d]"); if(!b) return;
+      apply(b.dataset.d, body.querySelector("#m-time").value || o.time);
+    });
+    body.querySelector("#m-ok").addEventListener("click", () =>
+      apply(body.querySelector("#m-date").value || o.date, body.querySelector("#m-time").value || o.time));
+    body.querySelector("#m-cancel").addEventListener("click", closeSheet);
+  });
+}
+
+function findOccurrence(lessonId, base){
+  const l = S.lessons.find(x => x.id === lessonId);
+  if(!l) return null;
+  const o = (l.ov && l.ov[base]) || null;
+  return {
+    lesson: l, base,
+    date: (o && o.date) || base,
+    time: (o && o.time) || l.time,
+    dur:  (o && o.dur)  || l.dur || 60,
+    status: (o && o.status) || "planned",
+    moved: !!(o && o.date && o.date !== base),
+    key: l.id + "@" + base
+  };
+}
+
+/* ============================================================
+   События
+   ============================================================ */
+document.getElementById("nav").addEventListener("click", e => {
+  const b = e.target.closest("[data-view]"); if(!b) return;
+  setView(b.dataset.view);
+});
+
+document.getElementById("tutorSeg").addEventListener("click", e => {
+  const b = e.target.closest("[data-tmode]"); if(!b) return;
+  tutorMode = b.dataset.tmode;
+  render();
+});
+
+function dayOfWeek(monday){
+  // сегодня, если показанная неделя текущая, иначе её понедельник
+  return today() >= monday && today() <= addDays(monday, 6) ? today() : monday;
+}
+document.getElementById("btnAdd").addEventListener("click", () => {
+  if(view === "tutor") lessonSheet(null, tutorMode === "week" ? dayOfWeek(tutorWeek) : today());
+  else if(view === "week") taskSheet(null, dayOfWeek(curWeek));
+  else taskSheet(null, curDay);
+});
+document.getElementById("btnAddLesson").addEventListener("click", () =>
+  lessonSheet(null, tutorMode === "week" ? dayOfWeek(tutorWeek) : today()));
+
+/* быстрый ввод задачи на текущий день */
+function quickAdd(){
+  const inp = document.getElementById("quickInput");
+  const v = inp.value.trim();
+  if(!v) return;
+  // «Позвонить маме 18:30» — время в конце строки распознаём сами
+  let time = "";
+  const m = v.match(/\s(\d{1,2})[:.](\d{2})$/);
+  let title = v;
+  if(m){
+    time = pad(Number(m[1])) + ":" + m[2];
+    title = v.slice(0, m.index).trim();
+  }
+  S.tasks.push({ id: uid(), title: title || v, note: "", date: curDay, time: time,
+                 prio: 0, repeat: "none", until: "", done: [], skip: [], created: Date.now() });
+  save(); inp.value = ""; render(); buzz(10);
+}
+document.getElementById("quickAdd").addEventListener("click", quickAdd);
+document.getElementById("quickInput").addEventListener("keydown", e => { if(e.key === "Enter") quickAdd(); });
+
+/* один обработчик на всё содержимое: галочки, открытие карточек, навигация */
+document.querySelector("main").addEventListener("click", e => {
+  const nav = e.target.closest("[data-nav]");
+  if(nav){
+    const [what, delta] = nav.dataset.nav.split(":");
+    const n = Number(delta);
+    if(what === "day")   curDay   = addDays(curDay, n);
+    if(what === "week")  curWeek  = addDays(curWeek, n * 7);
+    if(what === "tweek") tutorWeek = addDays(tutorWeek, n * 7);
+    render();
+    return;
+  }
+
+  const goto = e.target.closest("[data-goto]");
+  if(goto){
+    const v = goto.dataset.goto;
+    if(v === "today"){ curDay = today(); render(); }
+    if(v === "thisweek"){ curWeek = mondayOf(today()); render(); }
+    if(v === "tthisweek"){ tutorWeek = mondayOf(today()); render(); }
+    if(v.startsWith("day:")){ curDay = v.slice(4); setView("day"); }
+    return;
+  }
+
+  const act = e.target.closest("[data-act]");
+  if(act){
+    const [a, arg] = act.dataset.act.split(":");
+    if(a === "add-task") taskSheet(null, arg);
+    if(a === "pull-overdue"){
+      const t = today();
+      S.tasks.forEach(x => {
+        if(x.repeat === "none" && x.date < t && !isDone(x, x.date) && !(x.skip || []).includes(x.date)) x.date = t;
+      });
+      save(); render(); toast("Просроченные задачи перенесены на сегодня");
+    }
+    return;
+  }
+
+  const lessonEl = e.target.closest("[data-lesson]");
+  if(lessonEl){
+    const o = findOccurrence(lessonEl.dataset.lesson, lessonEl.dataset.base);
+    if(o) lessonActions(o);
+    return;
+  }
+
+  const taskEl = e.target.closest("[data-task]");
+  if(!taskEl) return;
+  const t = taskById(taskEl.dataset.task);
+  if(!t) return;
+  const date = taskEl.dataset.date;
+
+  if(e.target.closest("[data-toggle]")){
+    const on = !isDone(t, date);
+    setDone(t, date, on);
+    save();
+    // сначала показываем галочку, перерисовываем после анимации — иначе она мигает
+    const box = taskEl.querySelector(".check");
+    box.classList.toggle("on", on);
+    taskEl.classList.toggle("done", on);
+    if(on){ box.classList.add("pop"); buzz(12); }
+    setTimeout(render, 260);
+    return;
+  }
+  if(e.target.closest("[data-open]")) taskSheet(t, date);
+});
+
+/* свайп влево-вправо листает день и неделю */
+(function(){
+  let x0 = null, y0 = null;
+  const main = document.querySelector("main");
+  main.addEventListener("touchstart", e => {
+    if(e.touches.length !== 1){ x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+  }, { passive: true });
+  main.addEventListener("touchend", e => {
+    if(x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if(Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+    const n = dx < 0 ? 1 : -1;
+    if(view === "day")  curDay  = addDays(curDay, n);
+    if(view === "week") curWeek = addDays(curWeek, n * 7);
+    if(view === "tutor" && tutorMode === "week") tutorWeek = addDays(tutorWeek, n * 7);
+    if(view !== "more") render();
+  }, { passive: true });
+})();
+
+/* ============================================================
+   Напоминания
+   ============================================================ */
+function notifySupported(){ return "Notification" in window; }
+
+async function showNotification(title, body, tag){
+  try{
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    if(reg && reg.showNotification){
+      await reg.showNotification(title, { body: body, tag: tag, icon: "icon-192.png", badge: "icon-192.png", vibrate: [80, 40, 80] });
+      return;
+    }
+  }catch(e){ /* упадём на обычное уведомление */ }
+  try{ new Notification(title, { body: body, tag: tag, icon: "icon-192.png" }); }catch(e){}
+}
+
+function checkReminders(){
+  if(!notifySupported() || Notification.permission !== "granted") return;
+  const now = Date.now();
+  const t = today();
+  lessonOccurrences(addDays(t, -1), addDays(t, 2)).forEach(o => {
+    if(o.status !== "planned") return;
+    const remind = Number(o.lesson.remind || 0);
+    if(!remind) return;
+    if(S.fired[o.key]) return;
+    const start = dateTime(o.date, o.time).getTime();
+    const fireAt = start - remind * 60000;
+    // окно в 2 часа: телефон мог спать, но протухшее напоминание не нужно
+    if(now >= fireAt && now < start + 2 * 3600000 && now - fireAt < 2 * 3600000){
+      const when = (relDay(o.date) || fmtDay(o.date)) + " в " + o.time;
+      showNotification(
+        "Занятие: " + lessonTitle(o.lesson),
+        when + (o.lesson.place ? " · " + o.lesson.place : "") + " · " + o.dur + " мин",
+        o.key);
+      S.fired[o.key] = 1;
+      save();
+    }
+  });
+  // чистим старые отметки, чтобы хранилище не пухло
+  const keys = Object.keys(S.fired);
+  if(keys.length > 400){
+    const cut = addDays(t, -30);
+    keys.forEach(k => { if(k.split("@")[1] < cut) delete S.fired[k]; });
+    save();
+  }
+}
+
+document.getElementById("btnNotif").addEventListener("click", async () => {
+  if(!notifySupported()){ toast("Браузер не умеет уведомления"); return; }
+  if(Notification.permission === "granted"){
+    showNotification("Напоминания работают", "Так будет выглядеть напоминание о занятии.", "test");
+    checkReminders();
+    return;
+  }
+  const p = await Notification.requestPermission();
+  renderMore();
+  if(p === "granted"){
+    showNotification("Напоминания включены", "Напомним о занятии заранее.", "test");
+    checkReminders();
+  }else{
+    toast("Разрешение не выдано");
+  }
+});
+
+document.getElementById("remindDefault").addEventListener("change", e => {
+  S.settings.remindDefault = Number(e.target.value);
+  save();
+  toast("Будем напоминать " + (S.settings.remindDefault ? "за " + remindLabel(S.settings.remindDefault) : "по желанию"));
+});
+
+/* ============================================================
+   Данные: копия, загрузка, очистка
+   ============================================================ */
+document.getElementById("btnExport").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(S, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "planer-" + today() + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast("Файл сохранён в «Загрузки»");
+});
+document.getElementById("btnImport").addEventListener("click", () => document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change", e => {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try{
+      const data = JSON.parse(r.result);
+      if(!data || !Array.isArray(data.tasks)) throw new Error("bad");
+      if(!confirm("Заменить текущие данные данными из файла?")) return;
+      S = Object.assign(structuredClone(DEFAULTS), data);
+      save(); render(); toast("Данные загружены");
+    }catch(err){ toast("Не похоже на файл планера"); }
+  };
+  r.readAsText(f);
+  e.target.value = "";
+});
+document.getElementById("btnWipe").addEventListener("click", () => {
+  if(!confirm("Удалить все задачи и занятия? Отменить будет нельзя.")) return;
+  if(!confirm("Точно удалить всё?")) return;
+  S = structuredClone(DEFAULTS);
+  save(); render(); toast("Данные удалены");
+});
+
+/* ============================================================
+   Запуск
+   ============================================================ */
+load();
+setView("day");
+checkReminders();
+
+setInterval(() => {
+  checkReminders();
+  // после полуночи «сегодня» должно стать другим днём само
+  if(view === "day" && curDay !== today() && document.hidden === false) render();
+}, 30000);
+
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden) return;
+  checkReminders();
+  render();
+});
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
