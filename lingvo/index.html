@@ -498,24 +498,57 @@ function speak(text, rate) {
   });
 }
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-/* Распознавание речи. onText(итоговый текст, промежуточный) */
-function listen(onText, onEnd, continuous) {
+const SR_ERR = {
+  "not-allowed": "Нет доступа к микрофону. Разреши микрофон для сайта в настройках браузера.",
+  "service-not-allowed": "Распознавание речи выключено. На iPhone: Настройки → Основные → Клавиатура → включи «Диктовка», и Настройки → Siri — включи Siri.",
+  "audio-capture": "Микрофон недоступен — возможно, его занимает другое приложение.",
+  "network": "Для распознавания речи нужен интернет.",
+  "no-speech": "Не услышал голос — говори громче и ближе к телефону.",
+  "start-failed": "Не удалось включить распознавание речи."
+};
+const SR_FATAL = ["not-allowed", "service-not-allowed", "audio-capture", "start-failed"];
+const srOn = () => !!SR && !S.set.srOff;
+/* Распознавание речи. onText(текст) — по ходу речи, onEnd(текст, ошибка) — в конце.
+   Текст собираем из всех результатов, включая промежуточные: Safari на iPhone
+   часто так и не помечает их финальными, и без этого ответ терялся. */
+function listen(onText, onEnd, continuous, maxMs) {
   if (!SR) return null;
-  const r = new SR(); r.lang = "en-US"; r.interimResults = true; r.continuous = !!continuous; r.maxAlternatives = 1;
-  let finalText = "";
+  let r;
+  try { r = new SR(); } catch (e) { setTimeout(() => onEnd("", "start-failed")); return null; }
+  r.lang = "en-US"; r.interimResults = true; r.continuous = !!continuous; r.maxAlternatives = 1;
+  let text = "", err = null, ended = false;
   r.onresult = e => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) finalText += e.results[i][0].transcript + " ";
-      else interim += e.results[i][0].transcript;
-    }
-    onText(finalText.trim(), interim);
+    let all = "";
+    for (let i = 0; i < e.results.length; i++) all += e.results[i][0].transcript + " ";
+    text = all.replace(/\s+/g, " ").trim();
+    onText(text);
   };
-  r.onerror = e => { if (e.error === "not-allowed") toast("Нет доступа к микрофону"); };
-  r.onend = () => onEnd && onEnd(finalText.trim());
-  try { r.start(); } catch (e) { return null; }
+  r.onerror = e => { err = e.error; };
+  const fin = () => { if (ended) return; ended = true; clearTimeout(guard); onEnd(text, text ? null : err); };
+  r.onend = fin;
+  // страховка: на iPhone распознавание иногда не завершается само
+  const guard = setTimeout(() => { try { r.stop(); } catch (e) {} setTimeout(fin, 1200); }, maxMs || (continuous ? 180000 : 12000));
+  try { r.start(); } catch (e) { clearTimeout(guard); setTimeout(() => onEnd("", "start-failed")); return null; }
   return r;
 }
+/* Запись своего голоса — работает и там, где нет распознавания речи. */
+const canRecord = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+async function startRecording() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const type = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+  const mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [];
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const done = new Promise(res => { mr.onstop = () => { stream.getTracks().forEach(t => t.stop()); res(new Blob(chunks, { type: mr.mimeType || type || "audio/mp4" })); }; });
+  mr.start();
+  return { mr, done };
+}
+function stopMedia() {
+  if (ST.rec) { try { ST.rec.abort(); } catch (e) {} ST.rec = null; }
+  if (ST.mrec && ST.mrec.mr.state !== "inactive") { try { ST.mrec.mr.stop(); } catch (e) {} }
+  ST.mrec = null;
+  if (ST.audio) { try { ST.audio.pause(); } catch (e) {} ST.audio = null; }
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
 let AC;
 function beep(ok) {
   if (!S.set.sfx) return;
@@ -543,13 +576,13 @@ function runStage(title, tasks, onEnd, opts = {}) {
 }
 function closeStage() {
   if (TTS) TTS.cancel();
-  if (ST.rec) { try { ST.rec.abort(); } catch (e) {} ST.rec = null; }
+  stopMedia();
   clearInterval(ST.timer);
   ST.on = false; $("#stage").classList.remove("on"); $("#pop").classList.remove("on"); document.body.style.overflow = "";
   save(); render();
 }
 function renderTask() {
-  if (ST.rec) { try { ST.rec.abort(); } catch (e) {} ST.rec = null; }
+  stopMedia();
   clearInterval(ST.timer);
   const n = ST.tasks.length, t = ST.tasks[ST.i];
   $("#stBar").style.width = ST.noBar ? "0" : Math.round(ST.i / Math.max(1, n) * 100) + "%";
@@ -831,40 +864,90 @@ T.dict = (t, el) => {
   $("#ans").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $("#chk") ? $("#chk").click() : $("#nx").click(); } };
 };
 
-/* шэдоуинг */
+/* шэдоуинг: три режима — проверка распознаванием, запись своего голоса, счётчик */
 T.shadow = (t, el) => {
-  const s = t.s; let tries = 0, best = 0;
+  const s = t.s; let tries = 0, best = 0, passed = false;
+  let mode = srOn() ? "sr" : canRecord() ? "rec" : "count";
   el.innerHTML = `<div class="q-label">Шэдоуинг — слушай и повторяй</div>
     <div class="card"><div class="row" style="align-items:flex-start"><div style="flex:1;font-size:19px;font-weight:650;line-height:1.4" id="stx">${esc(s.en)}</div>${speakBtn(s.en)}</div>
     <div class="small muted" style="margin-top:6px">${esc(s.ru || "")}</div></div>
     <div class="row" style="justify-content:center;gap:8px"><button class="btn sm" data-say="${esc(s.en)}" data-rate="0.65">🐢 Медленно</button><button class="btn sm" data-say="${esc(s.en)}">▶ Обычно</button></div>
-    ${SR ? `<button class="mic" id="mic">🎙</button><p class="small dim" style="text-align:center;margin:0">Нажми и повтори фразу вслух, копируя интонацию</p>`
-         : `<p class="small muted" style="text-align:center;margin-top:16px">Микрофон в этом браузере не распознаёт речь — повторяй вслух 3 раза сам, копируя ритм и интонацию.</p>`}
-    <div class="transcript" id="tr" style="display:none"></div>
-    <div class="actions">${SR ? `<button class="btn" id="skip">Пропустить</button>` : `<button class="btn" id="cnt">Повторил: 0/3</button>`}<button class="btn primary" id="nx" disabled>Дальше</button></div>`;
+    <div id="shBox"></div>
+    <div class="actions"><button class="btn" id="skip">Пропустить</button><button class="btn primary" id="nx" disabled>Дальше</button></div>`;
   setTimeout(() => speak(s.en), 300);
-  if (SR) {
-    const mic = $("#mic");
-    mic.onclick = () => {
-      if (ST.rec) { try { ST.rec.stop(); } catch (e) {} return; }
-      TTS && TTS.cancel();
-      mic.classList.add("on"); $("#tr").style.display = ""; $("#tr").textContent = "Слушаю…";
-      ST.rec = listen((fin, intr) => { $("#tr").textContent = (fin + " " + intr).trim() || "Слушаю…"; }, fin => {
-        mic.classList.remove("on"); ST.rec = null; tries++;
-        const d = wordDiff(fin, s.en); best = Math.max(best, d.score);
-        $("#stx").innerHTML = `<span class="diff">${d.html}</span>`;
-        $("#tr").innerHTML = `<b>${Math.round(d.score * 100)}%</b> · услышал: «${esc(fin || "…")}»${d.score >= 0.75 ? " ✅" : tries < 3 ? " — давай ещё раз" : ""}`;
-        if (d.score >= 0.75 || tries >= 2) $("#nx").disabled = false;
-        beep(d.score >= 0.75);
-      });
-      if (!ST.rec) { mic.classList.remove("on"); toast("Не удалось включить микрофон"); $("#nx").disabled = false; }
-    };
-    $("#skip").onclick = () => next(null);
-  } else {
-    let n = 0;
-    $("#cnt").onclick = () => { n++; $("#cnt").textContent = `Повторил: ${Math.min(n, 3)}/3`; speak(s.en); if (n >= 3) $("#nx").disabled = false; };
-  }
-  $("#nx").onclick = () => next(SR ? best >= 0.75 : true);
+  const nx = $("#nx");
+  const draw = () => {
+    const box = $("#shBox");
+    if (mode === "sr") {
+      box.innerHTML = `<button class="mic" id="mic">🎙</button>
+        <p class="small dim" style="text-align:center;margin:0">Нажми, повтори фразу вслух и подожди — проверка сама остановится</p>
+        <div class="transcript" id="tr" style="display:none"></div>
+        <p style="text-align:center;margin:8px 0 0">${canRecord() ? `<button class="btn sm ghost" id="toRec">Не работает? Режим записи голоса</button>` : ""}</p>`;
+      const mic = $("#mic"), tr = $("#tr");
+      mic.onclick = async () => {
+        if (ST.rec) { try { ST.rec.stop(); } catch (e) {} return; }
+        if (TTS) TTS.cancel();
+        mic.classList.add("on"); tr.style.display = ""; tr.textContent = "Говори…";
+        await wait(250); // iPhone не успевает переключить звук с озвучки на микрофон
+        if (!ST.on) return;
+        const words = s.en.split(" ").length;
+        ST.rec = listen(txt => { tr.textContent = txt || "Говори…"; }, (txt, err) => {
+          mic.classList.remove("on"); ST.rec = null;
+          if (!txt && err && SR_FATAL.includes(err)) {
+            toast("Переключаю на запись голоса");
+            tr.innerHTML = esc(SR_ERR[err] || SR_ERR["start-failed"]);
+            if (canRecord()) { mode = "rec"; setTimeout(draw, 1800); } else { mode = "count"; setTimeout(draw, 1800); }
+            return;
+          }
+          tries++;
+          const d = wordDiff(txt, s.en); best = Math.max(best, d.score);
+          $("#stx").innerHTML = `<span class="diff">${d.html}</span>`;
+          tr.innerHTML = txt ? `<b>${Math.round(d.score * 100)}%</b> · услышал: «${esc(txt)}»${d.score >= 0.75 ? " ✅" : " — давай ещё раз"}`
+                             : esc(SR_ERR[err] || SR_ERR["no-speech"]);
+          if (txt) nx.disabled = false;
+          if (txt) beep(d.score >= 0.75);
+        }, false, 4000 + words * 700);
+        if (!ST.rec) mic.classList.remove("on");
+      };
+      if ($("#toRec")) $("#toRec").onclick = () => { mode = "rec"; draw(); };
+    } else if (mode === "rec") {
+      box.innerHTML = `<button class="mic" id="mic">🎙</button>
+        <p class="small dim" style="text-align:center;margin:0" id="rh">Нажми и повтори фразу вслух. Нажми ещё раз — стоп. Потом сравни себя с диктором.</p>
+        <div id="cmp" style="display:none">
+          <div class="row" style="justify-content:center;gap:8px;margin-top:12px"><button class="btn sm" data-say="${esc(s.en)}">▶ Диктор</button><button class="btn sm" id="me">▶ Я</button></div>
+        </div>`;
+      const mic = $("#mic");
+      let url = null;
+      mic.onclick = async () => {
+        if (ST.mrec) { try { ST.mrec.mr.stop(); } catch (e) {} return; }
+        if (TTS) TTS.cancel();
+        try { ST.mrec = await startRecording(); }
+        catch (e) { toast("Нет доступа к микрофону — повторяй вслух сам"); mode = "count"; return draw(); }
+        mic.classList.add("on"); $("#rh").textContent = "Запись… нажми ещё раз, чтобы остановить";
+        const rec = ST.mrec, stopT = setTimeout(() => { if (rec.mr.state !== "inactive") rec.mr.stop(); }, 15000);
+        const blob = await rec.done; clearTimeout(stopT);
+        if (ST.mrec === rec) ST.mrec = null;
+        if (!ST.on || !$("#mic")) return;
+        mic.classList.remove("on"); tries++;
+        if (url) URL.revokeObjectURL(url);
+        url = URL.createObjectURL(blob);
+        $("#rh").textContent = "Сравни себя с диктором: ритм, ударения, интонация. Не похоже — нажми микрофон и запиши ещё раз.";
+        $("#cmp").style.display = "";
+        nx.disabled = false; passed = true;
+        playMe();
+      };
+      const playMe = () => { if (!url) return; if (ST.audio) ST.audio.pause(); ST.audio = new Audio(url); ST.audio.play().catch(() => {}); };
+      $("#me").onclick = playMe;
+    } else {
+      let n = 0;
+      box.innerHTML = `<p class="small muted" style="text-align:center;margin-top:16px">Повтори фразу вслух 3 раза сразу за диктором, копируя ритм и интонацию.</p>
+        <button class="btn wide" id="cnt" style="margin-top:6px">Повторил: 0/3</button>`;
+      $("#cnt").onclick = () => { n++; $("#cnt").textContent = `Повторил: ${Math.min(n, 3)}/3`; speak(s.en); if (n >= 3) { passed = true; nx.disabled = false; } };
+    }
+  };
+  draw();
+  $("#skip").onclick = () => next(null);
+  nx.onclick = () => next(mode === "sr" ? best >= 0.75 : passed ? true : null);
 };
 
 /* говорение на тему */
@@ -875,8 +958,8 @@ T.speak = (t, el) => {
     <div class="card"><div class="small muted">Опорные фразы — используй их:</div><div style="font-size:16px;margin-top:6px;color:#a5f3fc">${esc(frame)}</div></div>
     <p class="small dim">Говори вслух, хоть с ошибками. Не знаешь слово — опиши другими словами. Цель — не остановиться.</p>
     <div class="timer" id="tm">0:00</div>
-    ${SR ? `<button class="mic" id="mic">🎙</button>` : ""}
-    <div class="transcript" id="tr">${SR ? "Нажми на микрофон и говори. Или напиши текст ниже." : "Говори вслух или напиши текст ниже."}</div>
+    ${srOn() ? `<button class="mic" id="mic">🎙</button>` : ""}
+    <div class="transcript" id="tr">${srOn() ? "Нажми на микрофон и говори. Или напиши текст ниже." : "Говори вслух или напиши текст ниже — кнопка откроется через минуту."}</div>
     <textarea class="answer" id="wr" rows="4" style="margin-top:10px" placeholder="…или напиши 5–7 предложений"></textarea>
     <div class="actions"><button class="btn primary" id="nx" disabled>Готово</button></div>
     <p class="small dim" id="need" style="text-align:center">Кнопка откроется после 60 секунд речи или 25 слов</p>`;
@@ -886,13 +969,20 @@ T.speak = (t, el) => {
     if (sec >= 60 || words + w2 >= 25) { $("#nx").disabled = false; $("#need").textContent = ""; }
   }, 1000);
   let acc = "";
-  if (SR) {
+  if (srOn()) {
     const mic = $("#mic");
-    mic.onclick = () => {
+    mic.onclick = async () => {
       if (ST.rec) { try { ST.rec.stop(); } catch (e) {} return; }
+      if (TTS) TTS.cancel();
       mic.classList.add("on");
-      ST.rec = listen((fin, intr) => { const all = (acc + " " + fin + " " + intr).trim(); $("#tr").textContent = all; words = all.split(/\s+/).filter(Boolean).length; },
-        fin => { acc = (acc + " " + fin).trim(); mic.classList.remove("on"); ST.rec = null; }, true);
+      await wait(250);
+      if (!ST.on) return;
+      ST.rec = listen(txt => { const all = (acc + " " + txt).trim(); $("#tr").textContent = all; words = all.split(/\s+/).filter(Boolean).length; },
+        (txt, err) => {
+          acc = (acc + " " + txt).trim(); mic.classList.remove("on"); ST.rec = null;
+          if (!txt && err) $("#tr").textContent = (acc ? acc + "\n\n" : "") + (SR_ERR[err] || SR_ERR["start-failed"]) + " Можно просто говорить вслух или писать текст.";
+          else if (acc) $("#tr").textContent = acc + "\n\n(нажми микрофон, чтобы продолжить)";
+        }, true);
       if (!ST.rec) mic.classList.remove("on");
     };
   }
@@ -1476,6 +1566,7 @@ function renderProg() {
       ${p ? `<div class="field"><label>Минут в день (новых слов: ${p.newPerDay})</label><div class="seg" id="sMin">${[30, 45, 60, 90].map(m => `<button data-m="${m}" class="${p.minutes === m ? "on" : ""}">${m}</button>`).join("")}</div></div>` : ""}
       <div class="field"><label>Голос озвучки</label><select id="sVoice"><option value="">Автоматически</option>${VOICES.map(v => `<option ${S.set.voice === v.name ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Скорость речи: <span id="rv">${S.set.rate}</span></label><input type="range" id="sRate" min="0.6" max="1.2" step="0.05" value="${S.set.rate}"></div>
+      ${SR ? `<div class="row" style="margin-bottom:12px"><span class="small">Проверка речи распознаванием<br><span class="dim">выкл — шэдоуинг через запись своего голоса</span></span><button class="btn sm sp" id="sSr">${S.set.srOff ? "Выкл" : "Вкл"}</button></div>` : ""}
       <div class="row" style="margin-bottom:12px"><span class="small">Звуки и вибрация</span><button class="btn sm sp" id="sSfx">${S.set.sfx ? "Вкл" : "Выкл"}</button></div>
       <div class="gap8">
         <button class="btn wide" id="sTest">🎯 Пройти тест уровня заново</button>
@@ -1491,6 +1582,7 @@ function renderProg() {
   $("#sVoice").onchange = e => { S.set.voice = e.target.value; save(); speak("Hello! Let's learn English."); };
   $("#sRate").oninput = e => { S.set.rate = +e.target.value; $("#rv").textContent = S.set.rate; save(); };
   $("#sRate").onchange = () => speak("This is how fast I speak.");
+  if ($("#sSr")) $("#sSr").onclick = () => { S.set.srOff = !S.set.srOff; save(); render(); };
   $("#sSfx").onclick = () => { S.set.sfx = !S.set.sfx; save(); render(); };
   $("#sTest").onclick = startTest;
   $("#sExp").onclick = () => {
