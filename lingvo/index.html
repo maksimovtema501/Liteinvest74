@@ -269,7 +269,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
   <button data-v="today" class="on"><span class="ico">🔥</span>Сегодня</button>
   <button data-v="words"><span class="ico">🧠</span>Слова</button>
   <button data-v="gram"><span class="ico">🧩</span>Грамматика</button>
-  <button data-v="read"><span class="ico">🎧</span>Тексты</button>
+  <button data-v="read"><span class="ico">🎧</span>Материалы</button>
   <button data-v="prog"><span class="ico">📈</span>Прогресс</button>
 </nav>
 
@@ -340,20 +340,41 @@ const KIND_NAME = { w: "слово", ch: "фраза", pv: "фразовый г�
 /* ============================================================
    Состояние
    ============================================================ */
-const KEY = "lingvo-v1";
+/* Профили: у каждого свои данные под ключом lingvo-v1:<id>.
+   Данные из версии без профилей переезжают в первый профиль. */
+const OLD_KEY = "lingvo-v1", PKEY = "lingvo-profiles";
+const EMOJI = ["🦊", "🐻", "🐼", "🐯", "🦁", "🐸", "🐵", "🦄", "🐙", "🐧", "🚀", "⚡️"];
+function loadProfiles() {
+  let pr = null;
+  try { pr = JSON.parse(localStorage.getItem(PKEY)); } catch (e) {}
+  if (!pr || !Array.isArray(pr.list) || !pr.list.length) {
+    pr = { cur: "p1", list: [{ id: "p1", name: "Я", emoji: "🦊" }] };
+    try { localStorage.setItem(PKEY, JSON.stringify(pr)); } catch (e) {}
+  }
+  try {
+    const old = localStorage.getItem(OLD_KEY);
+    if (old && pr.list.some(x => x.id === "p1") && !localStorage.getItem(OLD_KEY + ":p1")) localStorage.setItem(OLD_KEY + ":p1", old);
+  } catch (e) {}
+  if (!pr.list.some(x => x.id === pr.cur)) pr.cur = pr.list[0].id;
+  return pr;
+}
+let PROF = loadProfiles();
+const saveProfiles = () => { try { localStorage.setItem(PKEY, JSON.stringify(PROF)); } catch (e) {} };
+const curProfile = () => PROF.list.find(x => x.id === PROF.cur);
+const dataKey = id => OLD_KEY + ":" + (id || PROF.cur);
 function blank() {
   return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0,
            set: { rate: 0.9, voice: "", coach: "hard", sfx: true } };
 }
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY));
+    const s = JSON.parse(localStorage.getItem(dataKey()));
     if (s && s.v === 1) { const b = blank(); return Object.assign(b, s, { set: Object.assign(b.set, s.set || {}) }); }
   } catch (e) {}
   return blank();
 }
 let S = load();
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Не удалось сохранить данные"); } }
+function save() { try { localStorage.setItem(dataKey(), JSON.stringify(S)); } catch (e) { toast("Не удалось сохранить данные"); } }
 function D(n = today()) { const k = dayKey(n); return S.days[k] || (S.days[k] = { sec: 0, inp: 0, xp: 0, steps: {}, nw: 0 }); }
 const peekDay = n => S.days[dayKey(n)];
 
@@ -1249,7 +1270,11 @@ function totals() {
 function render() {
   const p = S.profile;
   $("#hSub").textContent = p ? `${p.level} → цель ${project(p.level, p).end.l} · день ${today() - p.start + 1} из ${p.plan === 6 ? 182 : 365}` : "английский за полгода";
-  $("#hAct").innerHTML = p ? `<span class="streak">🔥 ${streak()}</span><span class="lvl ${p.level}">${p.level}</span>` : "";
+  const me = curProfile();
+  $("#hAct").innerHTML = (p ? `<span class="streak">🔥 ${streak()}</span><span class="lvl ${p.level}">${p.level}</span>` : "")
+    + `<button class="icon-btn" id="hProf" aria-label="Профили" title="${esc(me.name)}">${me.emoji}</button>`;
+  $("#hProf").onclick = profilesSheet;
+  $("#hTitle").textContent = PROF.list.length > 1 ? `Лингво · ${me.name}` : "Лингво";
   if (VIEW === "today") renderToday();
   else if (VIEW === "words") renderWords();
   else if (VIEW === "gram") renderGram();
@@ -1442,16 +1467,43 @@ function renderGram() {
   });
 }
 
+let RT = "texts";
 function renderRead() {
-  const el = $("#v-read"), lvl = lvIdx(P().level);
-  let html = `<div class="card"><div class="small muted">Понятный ввод: читай и слушай тексты своего уровня. Тап по слову — перевод и «в колоду», 🔊 — озвучка фразы. Слушай каждый текст несколько раз, потом повторяй вслух.</div></div>`;
-  for (const L of ["A1", "A2", "B1", "B2"]) {
-    html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - Math.max(1, lvl)) <= 1 ? " · твой уровень" : ""}</div>`;
-    html += TEXTS.filter(t => t.lvl === L).map(t => `<button class="li" data-t="${t.id}"><span style="font-size:18px">${S.read[t.id] ? "✅" : "📖"}</span>
-      <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]} раз` : ""}</div></div><span class="dim">›</span></button>`).join("");
+  const el = $("#v-read"), lvl = clamp(lvIdx(P().level), 1, 4);
+  const tabs = [["texts", "📖 Тексты"], ...Object.entries(MEDIA_KINDS)];
+  let html = `<div class="seg" id="rtab" style="margin-bottom:12px;overflow-x:auto">${tabs.map(([k, n]) => `<button data-rt="${k}" class="${RT === k ? "on" : ""}" style="white-space:nowrap">${n}</button>`).join("")}</div>`;
+  if (RT === "texts") {
+    html += `<div class="card"><div class="small muted">Понятный ввод: читай и слушай тексты своего уровня. Тап по слову — перевод и «в колоду», 🔊 — озвучка фразы. Слушай каждый текст несколько раз, потом повторяй вслух.</div></div>`;
+    for (const L of ["A1", "A2", "B1", "B2"]) {
+      html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
+      html += TEXTS.filter(t => t.lvl === L).map(t => `<button class="li" data-t="${t.id}"><span style="font-size:18px">${S.read[t.id] ? "✅" : "📖"}</span>
+        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]} раз` : ""}</div></div><span class="dim">›</span></button>`).join("");
+    }
+  } else {
+    const intro = {
+      series: "Смотри с <b>английскими</b> субтитрами, не русскими. Где смотреть: Netflix, Кинопоиск, Okko, Иви — включай английскую дорожку. Понимаешь меньше половины — возьми сериал попроще.",
+      yt: "Короткие ролики на каждый день. Включи английские субтитры и скорость 0.75, если быстро.",
+      pod: "Слушай в дороге и в спортзале. Если есть расшифровка — сначала послушай, потом прочитай, потом послушай снова.",
+      site: "Бесплатные сайты и инструменты, которые дополняют приложение.",
+      book: "Бумажные или электронные книги. Ищи в книжных и электронных библиотеках."
+    }[RT];
+    const list = MEDIA.filter(m => m.k === RT).map(m => ({ m, d: Math.abs(lvIdx(m.lvl) - lvl) })).sort((a, b) => a.d - b.d || lvIdx(a.m.lvl) - lvIdx(b.m.lvl));
+    html += `<div class="card"><div class="small muted">${intro} Время отмечай кнопкой «+ мин» — оно идёт в погружение и прогресс.</div></div>`;
+    html += list.map(({ m, d }) => `<div class="card">
+      <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px">${esc(m.title)}</div></div>
+        <span class="lvl ${m.lvl}">${m.lvl}${m.k === "series" || m.k === "pod" || m.k === "yt" ? "+" : ""}</span></div>
+      ${d === 0 ? `<div class="chip ok" style="display:inline-block;margin-top:6px">для твоего уровня</div>` : lvIdx(m.lvl) > lvl + 1 ? `<div class="chip due" style="display:inline-block;margin-top:6px">пока сложно</div>` : ""}
+      <div class="small" style="margin-top:8px;line-height:1.5">${esc(m.desc)}</div>
+      <div class="small muted" style="margin-top:6px;line-height:1.5">💡 ${esc(m.how)}</div>
+      <div class="row wrap" style="gap:6px;margin-top:10px">
+        ${m.url ? `<a class="btn sm primary" href="${esc(m.url)}" target="_blank" rel="noopener" style="text-decoration:none">Открыть ↗</a>` : ""}
+        ${m.k !== "site" ? `<button class="btn sm" data-inp="${m.k === "book" ? 20 : m.k === "series" ? 30 : 15}">+${m.k === "book" ? 20 : m.k === "series" ? 30 : 15} мин погружения</button>` : ""}
+      </div></div>`).join("");
   }
   el.innerHTML = html;
+  $$("#rtab button").forEach(b => b.onclick = () => { RT = b.dataset.rt; renderRead(); window.scrollTo(0, 0); });
   $$("[data-t]", el).forEach(b => b.onclick = () => openReader(TEXTS.find(t => t.id === b.dataset.t)));
+  $$("[data-inp]", el).forEach(b => b.onclick = () => { D().inp += +b.dataset.inp; save(); render(); toast(`+${b.dataset.inp} мин погружения засчитано`); });
 }
 function openReader(tx) {
   runStage(tx.title, [{ type: "reader", tx }], () => false, { noBar: true });
@@ -1587,7 +1639,7 @@ function renderProg() {
   $("#sTest").onclick = startTest;
   $("#sExp").onclick = () => {
     const blob = new Blob([JSON.stringify(S)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `lingvo-${dayKey(today())}.json`;
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `lingvo-${curProfile().name}-${dayKey(today())}.json`;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   };
   $("#sImp").onclick = () => {
@@ -1598,10 +1650,65 @@ function renderProg() {
     i.click();
   };
   $("#sReset").onclick = () => {
-    if (!confirm("Удалить весь прогресс, слова и настройки?")) return;
+    if (!confirm(`Удалить весь прогресс, слова и настройки профиля «${curProfile().name}»?`)) return;
     if (!confirm("Точно? Это не отменить.")) return;
     S = blank(); save(); go("today");
   };
+}
+
+/* ---------- профили ---------- */
+function peekProfile(id) {
+  if (id === PROF.cur) return S;
+  try { return JSON.parse(localStorage.getItem(dataKey(id))) || null; } catch (e) { return null; }
+}
+function profilesSheet() {
+  openSheet(`<div class="sheet-title">Профили</div>
+    <p class="small muted" style="margin-top:-6px">У каждого профиля свой уровень, слова, прогресс и настройки. Удобно, если телефоном пользуется несколько человек.</p>
+    ${PROF.list.map(x => { const d = peekProfile(x.id), pl = d && d.profile;
+      return `<div class="li" style="cursor:default"><span style="font-size:24px">${x.emoji}</span>
+        <div class="lb"><div class="lt">${esc(x.name)}${x.id === PROF.cur ? ` <span class="chip ok">сейчас</span>` : ""}</div>
+        <div class="ls">${pl ? `уровень ${pl.level} · слов ${Object.keys(d.cards || {}).length}` : "тест уровня не пройден"}</div></div>
+        ${x.id !== PROF.cur ? `<button class="btn sm primary" data-sw="${x.id}">Выбрать</button>` : ""}
+        <button class="icon-btn" data-ed="${x.id}" aria-label="Изменить">✏️</button></div>`; }).join("")}
+    <button class="btn wide" id="pNew" style="margin-top:10px">＋ Новый профиль</button>`);
+  $$("[data-sw]").forEach(b => b.onclick = () => switchProfile(b.dataset.sw));
+  $$("[data-ed]").forEach(b => b.onclick = () => profileForm(b.dataset.ed));
+  $("#pNew").onclick = () => profileForm(null);
+}
+function profileForm(id) {
+  const x = id ? PROF.list.find(p => p.id === id) : { name: "", emoji: EMOJI[PROF.list.length % EMOJI.length] };
+  let emoji = x.emoji;
+  openSheet(`<div class="sheet-title">${id ? "Профиль" : "Новый профиль"}</div>
+    <div class="field"><label>Имя</label><input id="pName" value="${esc(x.name)}" maxlength="20" placeholder="например, Маша"></div>
+    <div class="field"><label>Значок</label><div class="vgrid" id="pEm" style="margin-top:0">${EMOJI.map(e => `<button data-e="${e}" class="${e === emoji ? "on" : ""}" style="font-size:22px;padding:8px 10px">${e}</button>`).join("")}</div></div>
+    <button class="btn primary wide" id="pSave">${id ? "Сохранить" : "Создать и перейти"}</button>
+    ${id && PROF.list.length > 1 ? `<button class="btn danger wide" id="pDel" style="margin-top:8px">Удалить профиль</button>` : ""}
+    <button class="btn ghost wide" id="pBack" style="margin-top:8px">Назад</button>`);
+  $$("#pEm button").forEach(b => b.onclick = () => { emoji = b.dataset.e; $$("#pEm button").forEach(y => y.classList.toggle("on", y === b)); });
+  $("#pBack").onclick = profilesSheet;
+  $("#pSave").onclick = () => {
+    const name = $("#pName").value.trim();
+    if (!name) return toast("Введи имя");
+    if (id) { x.name = name; x.emoji = emoji; saveProfiles(); render(); profilesSheet(); return; }
+    const np = { id: "p" + Date.now().toString(36), name, emoji };
+    PROF.list.push(np); saveProfiles(); switchProfile(np.id);
+  };
+  if ($("#pDel")) $("#pDel").onclick = () => {
+    if (!confirm(`Удалить профиль «${x.name}» со всем прогрессом? Это не отменить.`)) return;
+    try { localStorage.removeItem(dataKey(id)); } catch (e) {}
+    PROF.list = PROF.list.filter(p => p.id !== id);
+    if (PROF.cur === id) { PROF.cur = PROF.list[0].id; saveProfiles(); S = load(); go("today"); }
+    else saveProfiles();
+    profilesSheet(); render();
+  };
+}
+function switchProfile(id) {
+  if (ST.on) closeStage();
+  save();
+  PROF.cur = id; saveProfiles();
+  S = load();
+  closeSheet(); go("today");
+  toast(`${curProfile().emoji} ${curProfile().name}`);
 }
 
 /* ---------- лист ---------- */

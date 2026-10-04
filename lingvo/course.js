@@ -414,7 +414,85 @@ const TEXTS = [
   ["I must have turned down at least three opportunities because I was too embarrassed to speak.", "Я, наверное, упустил минимум три возможности, потому что стеснялся говорить."],
   ["What I eventually realised is that nobody cares about your mistakes as much as you do.", "В конце концов я понял, что никого твои ошибки не волнуют так, как тебя."],
   ["People just want to understand you.", "Людям просто нужно тебя понять."],
-  ["So if you are hesitating, don't wait for the perfect moment. It will never come.", "Так что если сомневаешься — не жди идеального момента. Он не наступит."]] }
+  ["So if you are hesitating, don't wait for the perfect moment. It will never come.", "Так что если сомневаешься — не жди идеального момента. Он не наступит."]] },
+{ id: "t11", lvl: "A1", title: "My family", pairs: [
+  ["I have a small family.", "У меня небольшая семья."],
+  ["My mother is a nurse and my father is a driver.", "Моя мама медсестра, а папа водитель."],
+  ["I have one sister. Her name is Olga.", "У меня есть сестра. Её зовут Ольга."],
+  ["She is twenty and she studies at university.", "Ей двадцать, она учится в университете."],
+  ["We have a cat. It is black and very lazy.", "У нас есть кошка. Она чёрная и очень ленивая."],
+  ["On Sundays we have lunch together.", "По воскресеньям мы обедаем вместе."],
+  ["I love my family.", "Я люблю свою семью."]] },
+{ id: "t12", lvl: "A1", title: "In a shop", pairs: [
+  ["— Hello. Can I help you?", "— Здравствуйте. Вам помочь?"],
+  ["— Yes, please. I'm looking for a black T-shirt.", "— Да, пожалуйста. Я ищу чёрную футболку."],
+  ["— What size are you?", "— Какой у вас размер?"],
+  ["— Medium, I think.", "— Думаю, M."],
+  ["— Here you are. The changing room is over there.", "— Вот, пожалуйста. Примерочная вон там."],
+  ["— Thanks. It's perfect. How much is it?", "— Спасибо. Идеально. Сколько стоит?"],
+  ["— It's fifteen pounds.", "— Пятнадцать фунтов."],
+  ["— Great, I'll take it.", "— Отлично, беру."]] },
+{ id: "t13", lvl: "A2", title: "A phone call", pairs: [
+  ["— Hi, Kate! It's Alex. Are you busy?", "— Привет, Кейт! Это Алекс. Ты занята?"],
+  ["— No, not really. What's up?", "— Да нет. Что случилось?"],
+  ["— Do you want to go to the cinema tonight?", "— Хочешь сходить в кино сегодня вечером?"],
+  ["— I'd love to, but I have to work late.", "— С удовольствием бы, но мне надо задержаться на работе."],
+  ["— What about tomorrow?", "— А завтра?"],
+  ["— Tomorrow is fine. What time?", "— Завтра нормально. Во сколько?"],
+  ["— The film starts at eight. Let's meet at half past seven.", "— Фильм начинается в восемь. Давай встретимся в половине восьмого."],
+  ["— Sounds good. See you tomorrow!", "— Договорились. До завтра!"]] },
+{ id: "t14", lvl: "A2", title: "Moving to a new city", pairs: [
+  ["Last year I moved to Saint Petersburg for a new job.", "В прошлом году я переехал в Санкт-Петербург ради новой работы."],
+  ["At first, everything was difficult.", "Сначала всё было трудно."],
+  ["I didn't know anybody and I often got lost.", "Я никого не знал и часто терялся."],
+  ["The weather was cold and it rained almost every day.", "Было холодно, и дождь шёл почти каждый день."],
+  ["Then I joined a running club and made some friends.", "Потом я записался в беговой клуб и завёл друзей."],
+  ["Now I know the city well and I love its old streets.", "Теперь я хорошо знаю город и люблю его старые улицы."],
+  ["I'm happy that I decided to move.", "Я рад, что решился на переезд."]] },
+{ id: "t15", lvl: "B1", title: "Saving money", pairs: [
+  ["A few years ago I had a good salary, but I never had any money at the end of the month.", "Несколько лет назад у меня была хорошая зарплата, но в конце месяца денег никогда не оставалось."],
+  ["I decided to find out where it was going.", "Я решил выяснить, куда они уходят."],
+  ["For one month I wrote down everything I spent, even a cup of coffee.", "Месяц я записывал всё, что тратил, даже чашку кофе."],
+  ["I was shocked: I was spending a fortune on taxis and food delivery.", "Я был в шоке: огромные деньги уходили на такси и доставку еды."],
+  ["Now I cook at home, use public transport and put ten percent of my income into savings.", "Теперь я готовлю дома, езжу на общественном транспорте и откладываю десять процентов дохода."],
+  ["It wasn't easy at first, but it's become a habit.", "Сначала было непросто, но это стало привычкой."],
+  ["If you want to save money, start by tracking your spending.", "Если хочешь копить, начни с учёта расходов."]] },
+{ id: "t16", lvl: "B1", title: "Sleep", pairs: [
+  ["Most adults need between seven and nine hours of sleep a night.", "Большинству взрослых нужно от семи до девяти часов сна."],
+  ["However, many people sleep much less because of work, stress or their phones.", "Однако многие спят гораздо меньше из-за работы, стресса или телефонов."],
+  ["Lack of sleep affects your mood, your memory and even your weight.", "Недосып влияет на настроение, память и даже вес."],
+  ["Interestingly, your brain uses sleep to store new information, including new words.", "Интересно, что во сне мозг сохраняет новую информацию, в том числе новые слова."],
+  ["That's why reviewing vocabulary before bed can be very effective.", "Поэтому повторение слов перед сном бывает очень эффективным."],
+  ["Try to go to bed at the same time every day and avoid screens for an hour before sleep.", "Старайся ложиться в одно и то же время и не смотреть в экраны за час до сна."]] },
+{ id: "t17", lvl: "B1", title: "Asking for directions", pairs: [
+  ["— Excuse me, could you tell me how to get to the train station?", "— Извините, не подскажете, как пройти к вокзалу?"],
+  ["— Sure. Go straight ahead until you reach the traffic lights.", "— Конечно. Идите прямо до светофора."],
+  ["— Then turn left and walk along the river for about five minutes.", "— Потом поверните налево и идите вдоль реки минут пять."],
+  ["— You'll see a big shopping centre on your right. The station is just behind it.", "— Справа увидите большой торговый центр. Вокзал прямо за ним."],
+  ["— Is it far? Should I take a bus?", "— Это далеко? Может, сесть на автобус?"],
+  ["— No, it's a ten-minute walk. You can't miss it.", "— Нет, десять минут пешком. Не пропустите."],
+  ["— Thank you so much!", "— Большое спасибо!"]] },
+{ id: "t18", lvl: "B2", title: "AI at work", pairs: [
+  ["Artificial intelligence is changing the way millions of people do their jobs.", "Искусственный интеллект меняет то, как работают миллионы людей."],
+  ["Tasks that used to take hours, such as writing reports or analysing data, can now be done in minutes.", "Задачи, которые раньше занимали часы, например отчёты или анализ данных, теперь делаются за минуты."],
+  ["Some experts warn that many jobs will disappear, while others argue that new ones will emerge.", "Одни эксперты предупреждают, что многие профессии исчезнут, другие утверждают, что появятся новые."],
+  ["What seems certain is that the most valuable skills will be those machines can't easily replicate.", "Похоже, наверняка можно сказать одно: самыми ценными станут навыки, которые машинам трудно повторить."],
+  ["Critical thinking, creativity and the ability to communicate across cultures are likely to be in high demand.", "Критическое мышление, креативность и умение общаться с людьми других культур, вероятно, будут востребованы."],
+  ["Ironically, learning a foreign language may be more useful than ever.", "Как ни странно, знание иностранного языка может оказаться полезнее, чем когда-либо."]] },
+{ id: "t19", lvl: "B2", title: "The four-day week", pairs: [
+  ["Several companies have recently experimented with a four-day working week without cutting salaries.", "Несколько компаний недавно попробовали четырёхдневную рабочую неделю без снижения зарплат."],
+  ["The results have been surprisingly positive.", "Результаты оказались на удивление положительными."],
+  ["Employees reported lower levels of stress and burnout, and productivity in most cases remained the same or even increased.", "Сотрудники сообщали о меньшем стрессе и выгорании, а производительность в большинстве случаев осталась прежней или даже выросла."],
+  ["Critics, however, point out that the model doesn't suit every industry.", "Критики, однако, отмечают, что эта модель подходит не всем отраслям."],
+  ["Hospitals, schools and shops can't simply close for an extra day.", "Больницы, школы и магазины не могут просто закрыться ещё на один день."],
+  ["Whether the idea spreads will depend on how creatively businesses adapt.", "Распространится ли идея, зависит от того, насколько изобретательно бизнес приспособится."]] },
+{ id: "t20", lvl: "B2", title: "Your attention is the product", pairs: [
+  ["Have you ever opened an app for a minute and looked up an hour later?", "Бывало, что открыл приложение на минуту, а очнулся через час?"],
+  ["That's not an accident: many apps are deliberately designed to keep you scrolling.", "Это не случайность: многие приложения специально сделаны так, чтобы ты продолжал листать."],
+  ["Infinite feeds, notifications and likes all exploit the way our brains respond to unpredictable rewards.", "Бесконечные ленты, уведомления и лайки используют то, как мозг реагирует на непредсказуемые награды."],
+  ["The longer you stay, the more adverts you see, and the more money the company makes.", "Чем дольше ты сидишь, тем больше рекламы видишь и тем больше зарабатывает компания."],
+  ["Being aware of this doesn't make you immune, but it helps.", "Понимание этого не даёт иммунитета, но помогает."],
+  ["Turning off non-essential notifications is a simple first step towards taking back control of your time.", "Отключить ненужные уведомления — простой первый шаг к тому, чтобы вернуть контроль над своим временем."]] }
 ];
 
 /* Темы для говорения. Цель — 1–2 минуты речи, используя подсказанные фразы. */
@@ -487,3 +565,55 @@ const LEVELS = {
   B2: { name: "B2 · Выше среднего", can: "Спокойно говоришь с носителями, смотришь сериалы, проходишь собеседования, работаешь на английском.", hours: 600 },
   C1: { name: "C1 · Продвинутый", can: "Почти как на родном: нюансы, юмор, сложные тексты, профессиональное общение.", hours: 800 }
 };
+
+/* Материалы для погружения. Ссылки на YouTube ведут на поиск по каналу —
+   так они не ломаются, если канал сменит адрес. */
+const YT = q => "https://www.youtube.com/results?search_query=" + encodeURIComponent(q);
+const IMDB = q => "https://www.imdb.com/find/?q=" + encodeURIComponent(q);
+const MEDIA = [
+  /* ---- сериалы ---- */
+  { k: "series", lvl: "A2", title: "Extr@ English", desc: "Ситком, снятый специально для изучающих английский: медленная чёткая речь, простые бытовые ситуации.", how: "Первый сериал для A1–A2. Смотри с английскими субтитрами, серии по 25 минут.", url: YT("Extra English episode 1") },
+  { k: "series", lvl: "A2", title: "Peppa Pig", desc: "Мультфильм для детей, но идеален для старта: короткие серии, простые фразы, британский акцент.", how: "Серия 5 минут — посмотри 3 раза: с субтитрами, без, и повторяя за героями.", url: YT("Peppa Pig full episodes English") },
+  { k: "series", lvl: "B1", title: "Friends («Друзья»)", desc: "Классика для изучающих: бытовой разговорный английский, повторяющиеся шутки и фразы.", how: "Смотри серию с английскими субтитрами, выписывай 3–5 фраз и добавляй их в «Слова».", url: IMDB("Friends 1994") },
+  { k: "series", lvl: "B1", title: "Modern Family («Американская семейка»)", desc: "Семейная комедия: современный американский английский, короткие сцены, много повседневной лексики.", how: "Серии по 20 минут — удобно смотреть по одной в день.", url: IMDB("Modern Family") },
+  { k: "series", lvl: "B1", title: "How I Met Your Mother («Как я встретил вашу маму»)", desc: "Разговорный английский, сленг, отношения, работа. Много чанков, которые реально используют.", how: "Если сложно — сначала с английскими субтитрами, потом пересмотри любимую серию без них.", url: IMDB("How I Met Your Mother") },
+  { k: "series", lvl: "B1", title: "Brooklyn Nine-Nine («Бруклин 9-9»)", desc: "Полицейская комедия: живые диалоги, понятная речь, короткие серии.", how: "Хорош для шэдоуинга: повторяй короткие реплики за персонажами.", url: IMDB("Brooklyn Nine-Nine") },
+  { k: "series", lvl: "B1", title: "Stranger Things («Очень странные дела»)", desc: "Затягивает — значит, смотришь много часов. Простая речь подростков.", how: "Главное здесь — объём: досматривай сезоны, не останавливаясь на каждом слове.", url: IMDB("Stranger Things") },
+  { k: "series", lvl: "B1", title: "Ted Lasso («Тед Лассо»)", desc: "Американец тренирует британскую футбольную команду: два акцента сразу и очень добрый юмор.", how: "Сравнивай, как одно и то же говорят американцы и британцы.", url: IMDB("Ted Lasso") },
+  { k: "series", lvl: "B2", title: "The Office (US) («Офис»)", desc: "Офисная жизнь, рабочая лексика, неловкий юмор, естественная речь с паузами и оговорками.", how: "Отличный источник фраз для работы и созвонов.", url: IMDB("The Office US") },
+  { k: "series", lvl: "B2", title: "Suits («Форс-мажоры»)", desc: "Юристы, переговоры, деловой английский. Речь быстрая, но чёткая.", how: "Выписывай фразы из переговоров — пригодятся на собеседованиях.", url: IMDB("Suits 2011") },
+  { k: "series", lvl: "B2", title: "Sherlock («Шерлок»)", desc: "Британский английский, быстрая и умная речь, богатый словарь.", how: "Смотри с английскими субтитрами — без них сложно даже носителям.", url: IMDB("Sherlock 2010") },
+  { k: "series", lvl: "B2", title: "Breaking Bad («Во все тяжкие»)", desc: "Захватывающий сюжет, разнообразная речь — от учителя до бандитов.", how: "Не переводи каждое слово: цель — понимать сюжет на 80% и смотреть много.", url: IMDB("Breaking Bad") },
+  { k: "series", lvl: "B2", title: "Black Mirror («Чёрное зеркало»)", desc: "Отдельные истории о технологиях: британский английский, серьёзная лексика.", how: "Каждая серия — отдельная история, можно смотреть в любом порядке.", url: IMDB("Black Mirror") },
+  { k: "series", lvl: "C1", title: "Downton Abbey («Аббатство Даунтон»)", desc: "Британская аристократия начала XX века: формальный английский и разные акценты.", how: "Для B2+: уровень вежливости и оборотов здесь сильно выше обычного.", url: IMDB("Downton Abbey") },
+  /* ---- YouTube ---- */
+  { k: "yt", lvl: "A1", title: "BBC Learning English", desc: "Официальный канал BBC: короткие уроки грамматики, лексики и произношения для всех уровней.", how: "Подпишись и смотри по одному ролику в день за завтраком.", url: YT("BBC Learning English") },
+  { k: "yt", lvl: "A2", title: "English with Lucy", desc: "Британская учительница: грамматика, произношение, лексика, всё очень понятно.", how: "Ищи ролики по темам, которые проходишь в разделе «Грамматика».", url: YT("English with Lucy") },
+  { k: "yt", lvl: "A2", title: "Speak English With Vanessa", desc: "Американский английский, разговорные фразы, медленная чёткая речь.", how: "Повторяй примеры вслух — это готовый шэдоуинг.", url: YT("Speak English With Vanessa") },
+  { k: "yt", lvl: "B1", title: "Easy English (уличные интервью)", desc: "Интервью с обычными людьми на улице, с двойными субтитрами. Живая речь носителей.", how: "Смотри один ролик 2–3 раза: с субтитрами, без, и с паузами для повтора.", url: YT("Easy English street interviews") },
+  { k: "yt", lvl: "B1", title: "Learn English with TV Series", desc: "Разбирает сцены из сериалов и фильмов: сленг, фразы, произношение.", how: "Сначала посмотри разбор, потом саму сцену без субтитров.", url: YT("Learn English with TV Series") },
+  { k: "yt", lvl: "B1", title: "Rachel's English", desc: "Лучший канал про американское произношение: связная речь, ударения, редукции.", how: "Для шэдоуинга: повторяй фразу за Рейчел, записывай себя и сравнивай.", url: YT("Rachel's English") },
+  { k: "yt", lvl: "B2", title: "TED-Ed", desc: "Короткие анимированные ролики о науке и истории с чёткой речью и субтитрами.", how: "Ролик 5 минут: сначала без субтитров, потом проверь, что понял.", url: YT("TED-Ed") },
+  { k: "yt", lvl: "B2", title: "Kurzgesagt — In a Nutshell", desc: "Научно-популярная анимация: космос, биология, общество. Богатая лексика B2–C1.", how: "Слушай фоном второй раз — лексика начинает узнаваться.", url: YT("Kurzgesagt In a Nutshell") },
+  /* ---- подкасты ---- */
+  { k: "pod", lvl: "A2", title: "6 Minute English (BBC)", desc: "6 минут, два ведущих, одна тема и разбор слов. Есть расшифровка каждого выпуска.", how: "Идеально в дорогу: один выпуск в день, потом прочитай расшифровку.", url: "https://www.bbc.co.uk/learningenglish/english/features/6-minute-english" },
+  { k: "pod", lvl: "B1", title: "The English We Speak (BBC)", desc: "3-минутные выпуски про одно разговорное выражение или идиому.", how: "Каждое выражение — сразу в «Слова» как своё.", url: "https://www.bbc.co.uk/learningenglish/english/features/the-english-we-speak" },
+  { k: "pod", lvl: "A2", title: "VOA Learning English", desc: "Новости и истории на медленном английском (около 2/3 обычной скорости) с текстом.", how: "Слушай и читай текст одновременно — так ухо привыкает быстрее.", url: "https://learningenglish.voanews.com" },
+  { k: "pod", lvl: "B2", title: "Luke's English Podcast", desc: "Британский учитель болтает о жизни, культуре и языке. Длинные выпуски, живая речь.", how: "Для B2: слушай на прогулке или в спортзале, не останавливаясь.", url: "https://teacherluke.co.uk" },
+  { k: "pod", lvl: "B1", title: "All Ears English", desc: "Американский разговорный английский: фразы для общения, small talk, работа.", how: "Выписывай фразы для small talk и используй их в «Говорении».", url: "https://www.allearsenglish.com" },
+  /* ---- сайты и инструменты ---- */
+  { k: "site", lvl: "A1", title: "British Council LearnEnglish", desc: "Бесплатные уроки от British Council: грамматика, чтение, аудирование, с упражнениями.", how: "Раздел Grammar дополняет темы из приложения упражнениями.", url: "https://learnenglish.britishcouncil.org" },
+  { k: "site", lvl: "A2", title: "News in Levels", desc: "Одна новость в трёх уровнях сложности, с аудио.", how: "Читай уровень 2, потом уровень 3 той же новости.", url: "https://www.newsinlevels.com" },
+  { k: "site", lvl: "B1", title: "Breaking News English", desc: "Свежие новости, адаптированные под 7 уровней, с аудио и упражнениями.", how: "Выбирай уровень 3–5, слушай и делай диктант.", url: "https://breakingnewsenglish.com" },
+  { k: "site", lvl: "A2", title: "LyricsTraining", desc: "Учишь английский по песням: клип играет, а ты вписываешь пропущенные слова.", how: "Отличный «ленивый» вариант на вечер — тоже считается погружением.", url: "https://lyricstraining.com" },
+  { k: "site", lvl: "A1", title: "Perfect English Grammar", desc: "Понятные объяснения грамматики и сотни упражнений с ответами.", how: "Не понял тему в приложении — открой её здесь.", url: "https://www.perfect-english-grammar.com" },
+  { k: "site", lvl: "B1", title: "YouGlish", desc: "Вводишь слово или фразу — показывает, как её произносят носители в тысячах роликов.", how: "Сомневаешься в произношении слова — проверь тут за 10 секунд.", url: "https://youglish.com" },
+  { k: "site", lvl: "B1", title: "Language Reactor", desc: "Расширение для Chrome: двойные субтитры (англ + рус) на Netflix и YouTube, перевод по наведению.", how: "Самый удобный способ смотреть сериалы на английском с компьютера.", url: "https://www.languagereactor.com" },
+  { k: "site", lvl: "A1", title: "Cambridge Dictionary", desc: "Лучший онлайн-словарь: значения, примеры, произношение UK и US, перевод на русский.", how: "Ищи слова здесь, а не в автопереводчике — увидишь примеры.", url: "https://dictionary.cambridge.org/dictionary/english-russian/" },
+  /* ---- книги ---- */
+  { k: "book", lvl: "A1", title: "Murphy — Essential Grammar in Use (красный)", desc: "Самый известный учебник грамматики для A1–A2: слева правило, справа упражнения.", how: "Один юнит в день вместе с темой из приложения.", url: "" },
+  { k: "book", lvl: "B1", title: "Murphy — English Grammar in Use (синий)", desc: "Тот же формат для B1–B2. Стандарт для самостоятельного изучения.", how: "Делай юниты по темам, где ошибаешься в тренировках.", url: "" },
+  { k: "book", lvl: "A2", title: "Адаптированные книги: Penguin Readers, Oxford Bookworms", desc: "Известные истории, упрощённые под уровень. Книга целиком — лучший понятный ввод.", how: "Бери уровень, где понятно 90% слов. Читай по 15–20 минут в день, не переводя каждое слово.", url: "" },
+  { k: "book", lvl: "B1", title: "McCarthy, O'Dell — English Vocabulary in Use", desc: "Лексика по темам с упражнениями, уровни от Elementary до Advanced.", how: "Слова из книги — в «Слова» через импорт списка.", url: "" }
+];
+const MEDIA_KINDS = { series: "🎬 Сериалы", yt: "▶️ YouTube", pod: "🎧 Подкасты", site: "🌐 Сайты", book: "📚 Книги" };
