@@ -289,6 +289,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
 <div id="toast"></div>
 
 <script src="words.js"></script>
+<script src="words-ext.js"></script>
 <script src="course.js"></script>
 <script src="topics.js"></script>
 <script>
@@ -321,21 +322,28 @@ function toast(t) {
    Словарь
    ============================================================ */
 const WORDS = [], WMAP = {}, DICT = {};
-(function parseWords() {
-  let lvl = "A1", kind = "w";
-  for (const line of WORDS_RAW.split("\n")) {
+/* Базовый словарь (words.js) и расширенный (words-ext.js). В расширенном
+   заголовок «#B1:food» задаёт и уровень, и тему; повторы пропускаем. */
+function parseWords(raw) {
+  let lvl = "A1", kind = "w", topic = "";
+  for (const line of raw.split("\n")) {
     const t = line.trim(); if (!t) continue;
     if (t[0] === "#") {
-      const h = t.slice(1);
+      const [h, tp] = t.slice(1).split(":");
+      topic = tp || "";
       if (h === "CH") { lvl = "A2"; kind = "ch"; } else if (h === "PV") { lvl = "B1"; kind = "pv"; } else { lvl = h; kind = "w"; }
       continue;
     }
     const [en, ru, ex, exr] = t.split("|");
+    const key = en.toLowerCase().replace(/[?.!]/g, "");
+    if (DICT[key] || WMAP["w:" + en]) continue;
     const w = { id: "w:" + en, en, ru, ex, exr, lvl, kind };
-    WORDS.push(w); WMAP[w.id] = w;
-    DICT[en.toLowerCase().replace(/[?.!]/g, "")] = w;
+    if (topic) w.topic = topic;
+    WORDS.push(w); WMAP[w.id] = w; DICT[key] = w;
   }
-})();
+}
+parseWords(WORDS_RAW);
+if (typeof WORDS_EXT === "string") parseWords(WORDS_EXT);
 const KIND_NAME = { w: "слово", ch: "фраза", pv: "фразовый глагол", own: "моё" };
 
 /* ============================================================
@@ -405,7 +413,9 @@ function dueIds() {
 }
 function curriculum() {
   const start = clamp(lvIdx(S.profile ? S.profile.level : "A0"), 1, 4);
-  const main = WORDS.filter(w => w.kind === "w" && lvIdx(w.lvl) >= start);
+  // по уровням: сначала все слова A1 (базовые, потом расширенные), затем A2…
+  const main = WORDS.filter(w => w.kind === "w" && lvIdx(w.lvl) >= start).map((w, i) => [w, i])
+    .sort((a, b) => lvIdx(a[0].lvl) - lvIdx(b[0].lvl) || a[1] - b[1]).map(x => x[0]);
   const ch = WORDS.filter(w => w.kind === "ch"), pv = WORDS.filter(w => w.kind === "pv");
   const out = []; let i = 0, ci = 0, pi = 0;
   for (const w of main) {
@@ -1666,7 +1676,7 @@ function renderProg() {
 /* Быстрый прогон по словам: выбор перевода из 4, в обе стороны.
    Последний результат по каждому слову хранится в S.mara — так видно,
    сколько слов в теме уже знаешь, и марафон начинает с непроверенных. */
-const topicOf = w => w.kind === "own" ? "own" : w.kind === "ch" ? "chunks" : w.kind === "pv" ? "phrasal" : TOPIC_BY_WORD[w.en] || "verbs";
+const topicOf = w => w.kind === "own" ? "own" : w.kind === "ch" ? "chunks" : w.kind === "pv" ? "phrasal" : w.topic || TOPIC_BY_WORD[w.en] || "verbs";
 const TOPIC_BY_WORD = {};
 TOPICS.forEach(t => { if (t.words) t.words.split("|").forEach(w => { TOPIC_BY_WORD[w] = t.id; }); });
 function topicWords(id) { return [...WORDS, ...S.own].filter(w => topicOf(w) === id); }
