@@ -290,6 +290,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
 
 <script src="words.js"></script>
 <script src="course.js"></script>
+<script src="topics.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -363,7 +364,7 @@ const saveProfiles = () => { try { localStorage.setItem(PKEY, JSON.stringify(PRO
 const curProfile = () => PROF.list.find(x => x.id === PROF.cur);
 const dataKey = id => OLD_KEY + ":" + (id || PROF.cur);
 function blank() {
-  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0,
+  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {},
            set: { rate: 0.9, voice: "", coach: "hard", sfx: true } };
 }
 function load() {
@@ -637,6 +638,7 @@ function finishStage() {
       <button class="btn wide ${nextStep ? "ghost" : "primary big"}" id="fClose">${nextStep ? "Хватит на сейчас" : "Закрыть"}</button>
     </div>`;
   $("#fClose").onclick = closeStage;
+  if (res && res.bind) res.bind();
   if (nextStep) $("#fNext").onclick = () => startStep(nextStep, true);
 }
 $("#stClose").onclick = () => {
@@ -1322,6 +1324,7 @@ function renderToday() {
     ${steps.map(k => { const i = stepInfo(k), dn = stepDone(k); return `<button class="step ${dn ? "done" : ""}" data-k="${k}">
       <div class="si">${STEP_META[k].ico}</div><div class="sb"><div class="st">${STEP_META[k].name}</div><div class="ss">${esc(i.sub)}</div></div>
       ${dn ? `<span class="sk">✓</span>` : `<span class="dim">›</span>`}</button>`; }).join("")}
+    <button class="btn wide" id="maraT" style="margin-top:4px">🏁 Марафон слов — быстрый прогон</button>
     <div class="sect-title">Погружение</div>
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Смотрел сериал, слушал подкаст или YouTube на английском? Отметь — это часы, которые двигают тебя к цели. Субтитры английские, не русские.</div>
@@ -1333,6 +1336,7 @@ function renderToday() {
   if ($("#start")) $("#start").onclick = () => startStep(nx, true);
   if ($("#extra")) $("#extra").onclick = () => { const keep = S.profile.newPerDay; S.profile.newPerDay = D().nw + 5; startStep("new", false); S.profile.newPerDay = keep; };
   $$(".step", el).forEach(b => b.onclick = () => startStep(b.dataset.k, false));
+  $("#maraT").onclick = maraSheet;
   $$("[data-inp]", el).forEach(b => b.onclick = () => { D().inp = Math.max(0, D().inp + +b.dataset.inp); save(); render(); if (+b.dataset.inp > 0) toast("Засчитано. Так держать"); });
 }
 function roadMini() {
@@ -1360,6 +1364,7 @@ function renderWords() {
     </div>
     <div class="gap8" style="margin-top:12px">
       <button class="btn primary wide" id="rv" ${due ? "" : "disabled"}>🧠 Повторить сейчас${due ? ` (${due})` : ""}</button>
+      <button class="btn wide" id="mara">🏁 Марафон слов · ${maraStats(WORDS.concat(S.own)).known} из ${WORDS.length + S.own.length} знаю</button>
       <div class="grid2"><button class="btn" id="nw">✨ +5 новых</button><button class="btn" id="add">＋ Своё слово</button></div>
       <button class="btn ghost wide sm" id="imp">Импорт списка слов</button>
     </div>
@@ -1368,6 +1373,7 @@ function renderWords() {
     <div class="seg" id="wf" style="margin-bottom:10px">${[["all", "Все"], ["learn", "Учу"], ["known", "Выучены"], ["new", "Новые"], ["own", "Мои"]].map(([k, n]) => `<button data-f="${k}" class="${WF.f === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <div id="wl"></div>`;
   $("#rv").onclick = () => startStep("review", false);
+  $("#mara").onclick = maraSheet;
   $("#nw").onclick = () => { const keep = P().newPerDay; S.profile && (S.profile.newPerDay = D().nw + 5); startStep("new", false); S.profile && (S.profile.newPerDay = keep); };
   $("#add").onclick = () => addWordSheet();
   $("#imp").onclick = importSheet;
@@ -1655,6 +1661,92 @@ function renderProg() {
     S = blank(); save(); go("today");
   };
 }
+
+/* ---------- марафон слов ---------- */
+/* Быстрый прогон по словам: выбор перевода из 4, в обе стороны.
+   Последний результат по каждому слову хранится в S.mara — так видно,
+   сколько слов в теме уже знаешь, и марафон начинает с непроверенных. */
+const topicOf = w => w.kind === "own" ? "own" : w.kind === "ch" ? "chunks" : w.kind === "pv" ? "phrasal" : TOPIC_BY_WORD[w.en] || "verbs";
+const TOPIC_BY_WORD = {};
+TOPICS.forEach(t => { if (t.words) t.words.split("|").forEach(w => { TOPIC_BY_WORD[w] = t.id; }); });
+function topicWords(id) { return [...WORDS, ...S.own].filter(w => topicOf(w) === id); }
+function maraStats(list) {
+  const m = S.mara || {}; let known = 0, checked = 0;
+  for (const w of list) if (w.id in m) { checked++; if (m[w.id]) known++; }
+  return { total: list.length, checked, known };
+}
+let MARA_N = 30;
+function maraSheet() {
+  const all = [...WORDS, ...S.own], st = maraStats(all), m = S.mara || {};
+  const wrong = all.filter(w => m[w.id] === 0);
+  const row = (key, emoji, name, list) => { const x = maraStats(list), pct = x.total ? Math.round(x.known / x.total * 100) : 0;
+    return `<button class="li" data-mk="${key}"><span style="font-size:20px">${emoji}</span><div class="lb"><div class="lt">${esc(name)}</div>
+      <div class="progress" style="margin-top:6px;height:5px"><i style="width:${pct}%"></i></div>
+      <div class="ls" style="font-size:12px;margin-top:4px">знаю ${x.known} из ${x.total}${x.checked < x.total ? ` · не проверено ${x.total - x.checked}` : ""}</div></div><span class="dim">›</span></button>`; };
+  openSheet(`<div class="sheet-title">🏁 Марафон слов</div>
+    <p class="small muted" style="margin-top:-6px">Быстрый прогон: видишь слово — выбираешь перевод, и наоборот. Сначала идут непроверенные слова, потом те, где ошибался. Ошибки одним нажатием уходят в повторение.</p>
+    <div class="field"><label>Сколько слов за забег</label><div class="seg" id="mN">${[20, 30, 50, 100, 0].map(n => `<button data-n="${n}" class="${MARA_N === n ? "on" : ""}">${n || "Все"}</button>`).join("")}</div></div>
+    ${row("all", "🌍", "Все слова", all)}
+    ${wrong.length ? `<button class="li" data-mk="wrong" style="border-color:rgba(239,68,68,.45)"><span style="font-size:20px">🔁</span><div class="lb"><div class="lt">Работа над ошибками</div><div class="ls">${wrong.length} ${plural(wrong.length, "слово", "слова", "слов")}, где ошибся в прошлый раз</div></div><span class="dim">›</span></button>` : ""}
+    <div class="sect-title">По уровню</div>
+    ${["A1", "A2", "B1", "B2"].map(L => row("lvl:" + L, L === "A1" ? "🟢" : L === "A2" ? "🔵" : L === "B1" ? "🟣" : "🟠", "Уровень " + L, WORDS.filter(w => w.lvl === L && w.kind === "w"))).join("")}
+    <div class="sect-title">По темам</div>
+    ${TOPICS.map(t => { const list = topicWords(t.id); return list.length ? row("t:" + t.id, t.emoji, t.name, list) : ""; }).join("")}
+    <p class="small dim" style="margin-top:10px">Проверено ${st.checked} из ${st.total} слов.</p>`);
+  $$("#mN button").forEach(b => b.onclick = () => { MARA_N = +b.dataset.n; $$("#mN button").forEach(x => x.classList.toggle("on", x === b)); });
+  $$("[data-mk]").forEach(b => b.onclick = () => {
+    const k = b.dataset.mk; let list, title;
+    if (k === "all") { list = all; title = "Все слова"; }
+    else if (k === "wrong") { list = wrong; title = "Работа над ошибками"; }
+    else if (k.startsWith("lvl:")) { const L = k.slice(4); list = WORDS.filter(w => w.lvl === L && w.kind === "w"); title = "Уровень " + L; }
+    else { const t = TOPICS.find(x => x.id === k.slice(2)); list = topicWords(t.id); title = t.emoji + " " + t.name; }
+    closeSheet(); startMarathon(list, title);
+  });
+}
+function startMarathon(list, title) {
+  if (!list.length) return toast("Здесь пока нет слов");
+  const m = S.mara || {};
+  const fresh = shuffle(list.filter(w => !(w.id in m))), bad = shuffle(list.filter(w => m[w.id] === 0)), good = shuffle(list.filter(w => m[w.id] === 1));
+  const pick = [...fresh, ...bad, ...good].slice(0, MARA_N || list.length);
+  const ctx = { streak: 0, bestStreak: 0, wrong: [], pool: list.length >= 4 ? list : [...WORDS, ...S.own] };
+  runStage("Марафон · " + title, pick.map(w => ({ type: "mara", w })), r => {
+    const total = r.ok + r.bad, wr = ctx.wrong;
+    return {
+      html: `<div class="grid2" style="margin-top:12px"><div class="stat"><b>${r.ok}/${total}</b><span>знаешь</span></div><div class="stat"><b>🔥 ${ctx.bestStreak}</b><span>лучшая серия</span></div></div>
+        ${wr.length ? `<div class="card" style="margin-top:12px"><div class="small muted" style="margin-bottom:8px">Ошибки (${wr.length}):</div>
+          ${wr.slice(0, 40).map(w => `<div class="row" style="padding:4px 0;border-bottom:1px solid var(--line)"><b style="flex:1">${esc(w.en)}</b><span class="muted small" style="text-align:right">${esc(w.ru)}</span></div>`).join("")}
+          ${wr.length > 40 ? `<div class="small dim" style="margin-top:6px">…и ещё ${wr.length - 40}</div>` : ""}
+          <div class="gap8" style="margin-top:12px"><button class="btn primary wide" id="mAdd">🧠 Добавить ошибки в повторение</button><button class="btn wide" id="mAgain">🔁 Прогнать ошибки ещё раз</button></div></div>`
+          : `<div class="card" style="margin-top:12px;text-align:center"><b>Ни одной ошибки 💪</b></div>`}`,
+      bind: () => {
+        if ($("#mAdd")) $("#mAdd").onclick = () => {
+          let n = 0;
+          for (const w of wr) { const c = S.cards[w.id]; if (!c) { S.cards[w.id] = newCard(0); n++; } else if (c.due > today()) { c.due = today(); n++; } }
+          save(); toast(n ? `В повторении на сегодня: ${n}` : "Они уже в повторении"); $("#mAdd").disabled = true;
+        };
+        if ($("#mAgain")) $("#mAgain").onclick = () => { const keep = MARA_N; MARA_N = 0; startMarathon(wr.slice(), "ошибки"); MARA_N = keep; };
+      }
+    };
+  }, { ctx });
+}
+T.mara = (t, el) => {
+  const w = t.w, c = ST.ctx, toRu = Math.random() < 0.6;
+  const same = c.pool.filter(x => x.id !== w.id && x.ru !== w.ru && x.en !== w.en);
+  const opts = shuffle([w, ...shuffle(same).slice(0, 3)]);
+  el.innerHTML = `<div class="q-label">${toRu ? "Что это значит?" : "Как это по-английски?"}${c.streak >= 3 ? ` · <span style="color:#fdba74">🔥 ${c.streak} подряд</span>` : ""}</div>
+    <div class="row"><div class="q-big" style="flex:1">${esc(toRu ? w.en : w.ru)}</div>${toRu ? speakBtn(w.en) : ""}</div>
+    <div class="opts">${opts.map(o => `<button class="opt" data-id="${esc(o.id)}">${esc(toRu ? o.ru : o.en)}</button>`).join("")}
+      <button class="opt idk" data-id="">Не знаю</button></div>`;
+  $$(".opt", el).forEach(b => b.onclick = () => {
+    const ok = b.dataset.id === w.id;
+    $$(".opt", el).forEach(x => { x.disabled = true; if (x.dataset.id === w.id) x.classList.add("ok"); });
+    if (!ok && b.dataset.id) b.classList.add("bad");
+    S.mara = S.mara || {}; S.mara[w.id] = ok ? 1 : 0;
+    if (ok) { c.streak++; c.bestStreak = Math.max(c.bestStreak, c.streak); } else { c.streak = 0; c.wrong.push(w); }
+    beep(ok); if (!ok || !toRu) speak(w.en);
+    setTimeout(() => next(ok), ok ? 380 : 1300);
+  });
+};
 
 /* ---------- профили ---------- */
 function peekProfile(id) {
