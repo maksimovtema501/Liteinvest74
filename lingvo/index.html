@@ -47,7 +47,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
   background:rgba(15,23,42,.96); backdrop-filter:blur(12px);
   border-top:1px solid var(--line); padding-bottom:var(--safe-b);
 }
-#nav button{flex:1;padding:11px 4px 9px;font-size:11px;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:3px}
+#nav button{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:11px 2px 9px;font-size:10.5px;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:3px}
 #nav button .ico{font-size:21px;line-height:1}
 #nav button.on{color:var(--violet)}
 .view{display:none}
@@ -241,6 +241,26 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
 #pop{position:fixed;left:12px;right:12px;bottom:calc(var(--safe-b) + 14px);z-index:65;background:var(--panel2);border:1px solid var(--line2);border-radius:16px;padding:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);display:none;max-width:616px;margin:0 auto}
 #pop.on{display:block}
 
+/* ---------- диалог с ИИ ---------- */
+.bub{max-width:86%;padding:10px 12px;border-radius:15px;margin:8px 0;font-size:16px;line-height:1.45;word-break:break-word}
+.bub.ai{background:var(--panel2);border-top-left-radius:5px}
+.bub.me{background:rgba(139,92,246,.28);margin-left:auto;border-top-right-radius:5px}
+.bub.ai .w{border-radius:4px}
+.bub.ai .w:active{background:rgba(139,92,246,.4)}
+.bub .ru{font-size:14px;color:var(--muted);margin-top:6px;display:none}
+.bub.show .ru{display:block}
+.bub .tools{display:flex;gap:6px;margin-top:6px}
+.bub .tools button{font-size:12px;padding:4px 9px;border-radius:8px;background:rgba(2,6,23,.35);color:var(--muted)}
+.bub.err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);font-size:14px}
+.fixbox{max-width:86%;margin:2px 0 8px auto;padding:8px 10px;border-radius:11px;font-size:13px;line-height:1.45;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.4)}
+.fixbox.ok{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.4)}
+.chat-bar{position:sticky;bottom:calc(-1 * (var(--safe-b) + 24px));background:var(--bg);padding:8px 0 calc(var(--safe-b) + 24px);margin-top:6px}
+.chat-row{display:flex;gap:8px;align-items:flex-end}
+.chat-row textarea{flex:1;min-width:0;resize:none;max-height:120px}
+.tipchip{padding:7px 11px;border-radius:999px;background:var(--panel);border:1px solid var(--line2);font-size:13px;text-align:left}
+.dots::after{content:"…";animation:dots 1s steps(3) infinite}
+@keyframes dots{0%{content:"."}33%{content:".."}66%{content:"..."}}
+
 #toast{position:fixed;left:50%;top:calc(var(--safe-t) + 14px);transform:translateX(-50%) translateY(calc(-100% - 40px));z-index:99;background:var(--panel2);border:1px solid var(--line2);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;transition:transform .25s;max-width:90vw;text-align:center}
 #toast.on{transform:translateX(-50%) translateY(0)}
 </style>
@@ -262,6 +282,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
   <section class="view" id="v-words"></section>
   <section class="view" id="v-gram"></section>
   <section class="view" id="v-read"></section>
+  <section class="view" id="v-chat"></section>
   <section class="view" id="v-prog"></section>
 </main>
 
@@ -269,7 +290,8 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
   <button data-v="today" class="on"><span class="ico">🔥</span>Сегодня</button>
   <button data-v="words"><span class="ico">🧠</span>Слова</button>
   <button data-v="gram"><span class="ico">🧩</span>Грамматика</button>
-  <button data-v="read"><span class="ico">🎧</span>Материалы</button>
+  <button data-v="read"><span class="ico">🎧</span>Медиа</button>
+  <button data-v="chat"><span class="ico">💬</span>Диалог</button>
   <button data-v="prog"><span class="ico">📈</span>Прогресс</button>
 </nav>
 
@@ -603,6 +625,10 @@ const ST = { on: false, tasks: [], i: 0, ok: 0, bad: 0, ctx: {}, onEnd: null, ti
 function runStage(title, tasks, onEnd, opts = {}) {
   Object.assign(ST, { on: true, tasks, i: 0, ok: 0, bad: 0, ctx: opts.ctx || {}, onEnd, title, chain: !!opts.chain, step: opts.step || null, noBar: !!opts.noBar, t0: Date.now() });
   $("#stage").classList.add("on"); document.body.style.overflow = "hidden";
+  // вкладки под сценой не видны; очищаем их, чтобы одинаковые id (например,
+  // кнопка «Повторить» во вкладке «Слова») не перехватывали поиск элементов
+  // в заданиях. После закрытия сцены текущая вкладка рисуется заново.
+  $$(".view").forEach(v => { v.innerHTML = ""; }); closeSheet();
   ST.lastAct = Date.now();
   renderTask();
 }
@@ -774,12 +800,12 @@ T.recall = (t, el) => {
   el.innerHTML = `
     <div class="q-label">${t.again ? "Ещё раз" : "Вспомни перевод"}</div>
     <div class="row"><div class="q-big" style="flex:1">${esc(w.en)}</div>${speakBtn(w.en)}</div>
-    <div id="rv" style="display:none"><div class="q-ru">${esc(w.ru)}</div>${exHtml(w)}</div>
+    <div id="rcAns" style="display:none"><div class="q-ru">${esc(w.ru)}</div>${exHtml(w)}</div>
     <div id="ra"><button class="btn primary big wide" id="show" style="margin-top:22px">Показать ответ</button>
     <p class="small dim" style="text-align:center">Сначала вспомни сам — честно, в голове.</p></div>`;
   speak(w.en);
   $("#show").onclick = () => {
-    $("#rv").style.display = "";
+    $("#rcAns", el).style.display = "";
     const c = S.cards[w.id] || newCard(0);
     const iv = q => { const x = Object.assign({}, c); grade(x, q); return x.ivl; };
     const lbl = d => d <= 1 ? "завтра" : d < 30 ? d + " дн" : Math.round(d / 30) + " мес";
@@ -1210,17 +1236,17 @@ T.tResult = (t, el) => {
         ${c.fa >= 3 ? `<p class="small" style="color:var(--amber);margin:10px 0 0">Ты отметил ${c.fa} выдуманных слова — словарь оценён с поправкой на угадывание.</p>` : ""}`}
     </div>
     <div class="sect-title">Сколько времени в день?</div>
-    <div class="seg" id="sMin">${[30, 45, 60, 90].map(m => `<button data-m="${m}" class="${m === plan.minutes ? "on" : ""}">${m} мин</button>`).join("")}</div>
+    <div class="seg" id="tMin">${[30, 45, 60, 90].map(m => `<button data-m="${m}" class="${m === plan.minutes ? "on" : ""}">${m} мин</button>`).join("")}</div>
     <div class="sect-title">Срок</div>
-    <div class="seg" id="sPlan"><button data-p="6" class="on">6 месяцев</button><button data-p="12">12 месяцев</button></div>
+    <div class="seg" id="tPlan"><button data-p="6" class="on">6 месяцев</button><button data-p="12">12 месяцев</button></div>
     <div class="sect-title">Погружение (сериалы, подкасты) в день</div>
-    <div class="seg" id="sInp">${[0, 30, 60].map(m => `<button data-i="${m}" class="${m === plan.input ? "on" : ""}">${m ? m + " мин" : "не буду"}</button>`).join("")}</div>
+    <div class="seg" id="tInp">${[0, 30, 60].map(m => `<button data-i="${m}" class="${m === plan.input ? "on" : ""}">${m ? m + " мин" : "не буду"}</button>`).join("")}</div>
     <div class="card accent" id="proj" style="margin-top:14px"></div>
     <button class="btn primary big wide" id="go">Начать обучение</button>`;
   const upd = () => { $("#proj").innerHTML = projectionHtml(L, plan); };
-  $$("#sMin button").forEach(b => b.onclick = () => { plan.minutes = +b.dataset.m; $$("#sMin button").forEach(x => x.classList.toggle("on", x === b)); upd(); });
-  $$("#sPlan button").forEach(b => b.onclick = () => { plan.plan = +b.dataset.p; $$("#sPlan button").forEach(x => x.classList.toggle("on", x === b)); upd(); });
-  $$("#sInp button").forEach(b => b.onclick = () => { plan.input = +b.dataset.i; $$("#sInp button").forEach(x => x.classList.toggle("on", x === b)); upd(); });
+  $$("#tMin button").forEach(b => b.onclick = () => { plan.minutes = +b.dataset.m; $$("#tMin button").forEach(x => x.classList.toggle("on", x === b)); upd(); });
+  $$("#tPlan button").forEach(b => b.onclick = () => { plan.plan = +b.dataset.p; $$("#tPlan button").forEach(x => x.classList.toggle("on", x === b)); upd(); });
+  $$("#tInp button").forEach(b => b.onclick = () => { plan.input = +b.dataset.i; $$("#tInp button").forEach(x => x.classList.toggle("on", x === b)); upd(); });
   upd();
   $("#go").onclick = () => {
     const prev = S.profile;
@@ -1291,6 +1317,7 @@ function render() {
   else if (VIEW === "words") renderWords();
   else if (VIEW === "gram") renderGram();
   else if (VIEW === "read") renderRead();
+  else if (VIEW === "chat") renderChat();
   else renderProg();
 }
 
@@ -1633,7 +1660,7 @@ function renderProg() {
       <div class="field"><label>Тренер</label><div class="seg" id="sCoach"><button data-c="hard" class="${S.set.coach !== "soft" ? "on" : ""}">😤 Жёсткий</button><button data-c="soft" class="${S.set.coach === "soft" ? "on" : ""}">🙂 Мягкий</button></div></div>
       ${p ? `<div class="field"><label>Минут в день (новых слов: ${p.newPerDay})</label><div class="seg" id="sMin">${[30, 45, 60, 90].map(m => `<button data-m="${m}" class="${p.minutes === m ? "on" : ""}">${m}</button>`).join("")}</div></div>` : ""}
       <div class="field"><label>Голос озвучки</label><select id="sVoice"><option value="">Автоматически</option>${VOICES.map(v => `<option ${S.set.voice === v.name ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
-      <div class="field"><label>Скорость речи: <span id="rv">${S.set.rate}</span></label><input type="range" id="sRate" min="0.6" max="1.2" step="0.05" value="${S.set.rate}"></div>
+      <div class="field"><label>Скорость речи: <span id="rateV">${S.set.rate}</span></label><input type="range" id="sRate" min="0.6" max="1.2" step="0.05" value="${S.set.rate}"></div>
       ${SR ? `<div class="row" style="margin-bottom:12px"><span class="small">Проверка речи распознаванием<br><span class="dim">выкл — шэдоуинг через запись своего голоса</span></span><button class="btn sm sp" id="sSr">${S.set.srOff ? "Выкл" : "Вкл"}</button></div>` : ""}
       <div class="row" style="margin-bottom:12px"><span class="small">Звуки и вибрация</span><button class="btn sm sp" id="sSfx">${S.set.sfx ? "Вкл" : "Выкл"}</button></div>
       <div class="gap8">
@@ -1648,7 +1675,7 @@ function renderProg() {
   $$("#sCoach button").forEach(b => b.onclick = () => { S.set.coach = b.dataset.c; save(); render(); });
   $$("#sMin button").forEach(b => b.onclick = () => { p.minutes = +b.dataset.m; p.newPerDay = NEW_PER_MIN[p.minutes]; save(); render(); });
   $("#sVoice").onchange = e => { S.set.voice = e.target.value; save(); speak("Hello! Let's learn English."); };
-  $("#sRate").oninput = e => { S.set.rate = +e.target.value; $("#rv").textContent = S.set.rate; save(); };
+  $("#sRate").oninput = e => { S.set.rate = +e.target.value; $("#rateV").textContent = S.set.rate; save(); };
   $("#sRate").onchange = () => speak("This is how fast I speak.");
   if ($("#sSr")) $("#sSr").onclick = () => { S.set.srOff = !S.set.srOff; save(); render(); };
   $("#sSfx").onclick = () => { S.set.sfx = !S.set.sfx; save(); render(); };
@@ -1756,6 +1783,243 @@ T.mara = (t, el) => {
     beep(ok); if (!ok || !toRu) speak(w.en);
     setTimeout(() => next(ok), ok ? 380 : 1300);
   });
+};
+
+/* ---------- диалог с ИИ ---------- */
+/* Собеседник — Claude через официальный SDK (vendor/anthropic-sdk.mjs).
+   Сервера у приложения нет, поэтому ключ API вводит сам человек: он хранится
+   только в localStorage этого устройства и уходит только в api.anthropic.com. */
+const AI_KEY = "lingvo-ai-key", AI_MODEL = "claude-opus-5-5";
+const aiKey = () => { try { return localStorage.getItem(AI_KEY) || ""; } catch (e) { return ""; } };
+let AnthropicSDK = null;
+async function aiClient() {
+  if (!AnthropicSDK) AnthropicSDK = (await import("./vendor/anthropic-sdk.mjs")).default;
+  return new AnthropicSDK({ apiKey: aiKey(), dangerouslyAllowBrowser: true });
+}
+const SCENARIOS = [
+  { id: "free", e: "💬", name: "Свободный разговор", ru: "О чём угодно: работа, хобби, планы", role: "a friendly native speaker chatting casually about whatever the learner wants to talk about" },
+  { id: "meet", e: "👋", name: "Знакомство", ru: "Ты на вечеринке, с тобой знакомятся", role: "a new acquaintance at a party who is getting to know the learner" },
+  { id: "cafe", e: "☕", name: "В кафе", ru: "Закажи еду и напитки", role: "a waiter in a London cafe taking the learner's order" },
+  { id: "shop", e: "🛍", name: "Магазин одежды", ru: "Найди вещь, примерь, заплати", role: "a shop assistant in a clothes shop helping the learner" },
+  { id: "hotel", e: "🏨", name: "Отель", ru: "Заселение и вопросы на ресепшене", role: "a hotel receptionist; the learner is checking in and has questions and small problems" },
+  { id: "airport", e: "✈️", name: "Аэропорт", ru: "Регистрация, багаж, паспортный контроль", role: "an airline check-in agent, and later a passport control officer" },
+  { id: "directions", e: "🗺", name: "Как пройти", ru: "Ты заблудился, спроси дорогу", role: "a local person in the street; the learner is lost and asks for directions" },
+  { id: "doctor", e: "🩺", name: "У врача", ru: "Опиши, что болит", role: "a doctor at a clinic; the learner describes their symptoms" },
+  { id: "colleague", e: "🧑‍💻", name: "Small talk с коллегой", ru: "Болтовня у кофемашины", role: "a friendly colleague chatting at the coffee machine", min: "A2" },
+  { id: "movie", e: "🎬", name: "Фильмы и сериалы", ru: "Обсуди, что смотришь", role: "a friend who loves films and TV series and wants to discuss them", min: "A2" },
+  { id: "interview", e: "💼", name: "Собеседование", ru: "Пройди интервью на работу мечты", role: "an HR manager interviewing the learner for a job of their choice; ask typical interview questions one at a time", min: "A2" },
+  { id: "debate", e: "⚖️", name: "Спор", ru: "Отстаивай своё мнение", role: "a friend who politely disagrees with the learner on a topic like remote work, social media or city life, and pushes them to give reasons", min: "B1" },
+  { id: "grammar", e: "🧩", name: "Тренировка грамматики", ru: "", role: "", grammar: true }
+];
+function aiSystem(sc) {
+  const L = P().level === "A0" ? "A1 (absolute beginner)" : P().level;
+  const g = sc.grammar ? (currentTopic() || GRAMMAR[0]) : null;
+  const role = g ? `a friendly conversation partner who steers the chat so the learner has to use this grammar: "${g.title}". Ask questions that naturally require it` : sc.role;
+  return `You are an English conversation partner inside a language-learning app. The learner is a Russian speaker at CEFR level ${L}.
+Your role: ${role}.
+
+How to talk:
+- Write the reply in English only, 1-3 short sentences, using words and grammar the learner can understand at their level. For A1 use very simple words and short sentences.
+- Stay in your role and keep the conversation going: end with a question or something the learner can answer.
+- If the learner writes in Russian or mixes languages, show them how to say it in English and continue.
+
+After the reply, always add these three sections, each starting with its marker on its own line:
+###RU
+A natural Russian translation of your reply.
+###FIX
+Mistakes in the learner's last message, one per line, in the form: wrong → correct — short explanation in Russian. Ignore capital letters, missing final punctuation and small typos that don't change the word. If there is nothing to fix, or the learner hasn't written yet, write a single dash: -
+###TIPS
+Two short example answers the learner could give next, at their level, one per line, without numbering.`;
+}
+function parseAi(text) {
+  const parts = String(text).split(/^[ \t]*###[ \t]*(RU|FIX|TIPS)[ \t]*$/m);
+  const out = { reply: parts[0].trim(), ru: "", fix: [], tips: [] };
+  for (let i = 1; i < parts.length; i += 2) {
+    const body = (parts[i + 1] || "").trim();
+    if (parts[i] === "RU") out.ru = body;
+    else if (parts[i] === "FIX") out.fix = body.split("\n").map(x => x.replace(/^[-•*\d.)\s]+(?=\S)/, "").trim()).filter(x => x && x !== "-" && x !== "—");
+    else out.tips = body.split("\n").map(x => x.replace(/^[-•*\d.)\s]+/, "").trim()).filter(Boolean).slice(0, 3);
+  }
+  return out;
+}
+const tapWords = t => esc(t).split(/(\s+)/).map(x => /\s+/.test(x) || !/[A-Za-z]/.test(x) ? x : `<span class="w">${x}</span>`).join("");
+
+function renderChat() {
+  const el = $("#v-chat"), key = aiKey();
+  if (!key) {
+    el.innerHTML = `<div class="card accent">
+      <div class="q-mid" style="margin-top:0">💬 Собеседник с ИИ</div>
+      <p class="small" style="line-height:1.55">Живой диалог на английском: ИИ играет роль (официант, HR, врач, друг), говорит на твоём уровне, исправляет ошибки и подсказывает, что ответить. Можно писать или говорить голосом.</p>
+      <p class="small muted" style="line-height:1.55">Работает на Claude от Anthropic. У приложения нет своего сервера, поэтому нужен <b style="color:var(--text)">свой ключ API</b>. Это платно, но копейки: одна реплика стоит примерно 1–3 рубля (около цента).</p></div>
+    <div class="card">
+      <b>Как получить ключ (5 минут)</b>
+      <ol class="small muted" style="padding-left:18px;line-height:1.7;margin:8px 0 12px">
+        <li>Открой <a href="https://console.anthropic.com" target="_blank" rel="noopener" style="color:#c4b5fd">console.anthropic.com</a> и зарегистрируйся.</li>
+        <li>Пополни баланс в разделе Billing (хватит $5 на сотни реплик).</li>
+        <li>API Keys → Create Key → скопируй ключ (начинается с <code>sk-ant-</code>).</li>
+        <li>Вставь его сюда.</li></ol>
+      <div class="field"><input id="aiKeyIn" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <button class="btn primary wide" id="aiKeySave">Сохранить ключ</button>
+      <p class="small dim" style="margin:10px 0 0;line-height:1.5">Ключ хранится только на этом устройстве и отправляется только в Anthropic. Никому его не показывай: по нему списываются деньги с твоего баланса.</p></div>`;
+    $("#aiKeySave").onclick = () => {
+      const v = $("#aiKeyIn").value.trim();
+      if (!/^sk-ant-/.test(v)) return toast("Ключ должен начинаться с sk-ant-");
+      try { localStorage.setItem(AI_KEY, v); } catch (e) { return toast("Не удалось сохранить ключ"); }
+      toast("Ключ сохранён"); renderChat();
+    };
+    return;
+  }
+  const lvl = clamp(lvIdx(P().level), 1, 5), g = currentTopic();
+  el.innerHTML = `<div class="card"><div class="small muted" style="line-height:1.55">ИИ говорит на твоём уровне (<b style="color:var(--text)">${P().level}</b>), исправляет ошибки и подсказывает ответы. Тап по слову — перевод. 6 реплик за день засчитывают шаг «Говорение».</div></div>
+    ${SCENARIOS.map(sc => { const hard = sc.min && lvIdx(sc.min) > lvl;
+      const sub = sc.grammar ? (g ? g.title : "повторение тем") : sc.ru;
+      return `<button class="li" data-sc="${sc.id}"><span style="font-size:22px">${sc.e}</span><div class="lb"><div class="lt">${esc(sc.name)}</div><div class="ls">${esc(sub)}</div></div>${hard ? `<span class="chip due">сложно</span>` : `<span class="dim">›</span>`}</button>`; }).join("")}
+    <div class="row" style="margin-top:14px"><span class="small dim">Ключ API: ${esc(key.slice(0, 10))}…${esc(key.slice(-4))}</span><button class="btn sm ghost sp" id="aiKeyDel">Удалить ключ</button></div>`;
+  $$("[data-sc]", el).forEach(b => b.onclick = () => startChat(SCENARIOS.find(x => x.id === b.dataset.sc)));
+  $("#aiKeyDel").onclick = () => { if (!confirm("Удалить ключ API с этого устройства?")) return; try { localStorage.removeItem(AI_KEY); } catch (e) {} renderChat(); };
+}
+function startChat(sc) {
+  const title = sc.grammar ? `${sc.e} ${(currentTopic() || GRAMMAR[0]).title}` : `${sc.e} ${sc.name}`;
+  const ctx = { sc, sys: aiSystem(sc), api: [], fixes: [], userN: 0, busy: false, autoSpeak: S.set.chatSpeak !== false };
+  runStage(title, [{ type: "chat" }], () => false, { ctx, noBar: true });
+}
+T.chat = (t, el) => {
+  const c = ST.ctx;
+  el.innerHTML = `<div id="chList"></div>
+    <div class="chat-bar">
+      <div class="row wrap" id="chTips" style="gap:6px;margin-bottom:8px"></div>
+      <div class="chat-row">
+        ${srOn() ? `<button class="icon-btn" id="chMic" aria-label="Сказать голосом" style="width:46px;height:46px">🎙</button>` : ""}
+        <textarea class="answer" id="chIn" rows="1" placeholder="Напиши по-английски…" autocomplete="off" autocapitalize="sentences" spellcheck="false"></textarea>
+        <button class="btn primary" id="chSend" style="height:46px;padding:0 14px" aria-label="Отправить">➤</button>
+      </div>
+      <div class="row" style="margin-top:8px"><button class="btn sm ghost" id="chSpk">${c.autoSpeak ? "🔊 Озвучка вкл" : "🔇 Озвучка выкл"}</button><button class="btn sm sp" id="chEnd">Завершить</button></div>
+    </div>`;
+  const list = $("#chList"), inp = $("#chIn");
+  const scrollDown = () => { const b = $("#stBody"); b.scrollTop = b.scrollHeight; };
+  const addBubble = (cls, html) => { const d = document.createElement("div"); d.className = "bub " + cls; d.innerHTML = html; list.appendChild(d); scrollDown(); return d; };
+  const setTips = tips => {
+    $("#chTips").innerHTML = tips.map(x => `<button class="tipchip">${esc(x)}</button>`).join("");
+    $$("#chTips .tipchip").forEach(b => b.onclick = () => { inp.value = b.textContent; inp.focus(); });
+  };
+  const errText = e => {
+    const A = AnthropicSDK;
+    if (A && e instanceof A.AuthenticationError) return "Ключ API не подошёл. Проверь его во вкладке «Диалог» → «Удалить ключ» и введи заново.";
+    if (A && e instanceof A.PermissionDeniedError) return "У ключа нет доступа к модели. Проверь настройки в console.anthropic.com.";
+    if (A && e instanceof A.RateLimitError) return "Слишком много запросов. Подожди минуту и попробуй снова.";
+    if (A && e instanceof A.BadRequestError) return "Запрос отклонён: " + (e.message || "") + " Если дело в балансе — пополни его в console.anthropic.com (Billing).";
+    if (A && e instanceof A.APIConnectionError) return "Нет связи с сервером. Проверь интернет.";
+    if (A && e instanceof A.APIError) return `Ошибка сервера (${e.status || "?"}). Попробуй ещё раз.`;
+    return "Не получилось связаться с ИИ: " + (e && e.message ? e.message : e);
+  };
+  async function turn(userText) {
+    if (c.busy) return;
+    c.busy = true; $("#chSend").disabled = true;
+    let meBubble = null;
+    if (userText) {
+      c.api.push({ role: "user", content: userText });
+      meBubble = addBubble("me", esc(userText));
+      c.userN++;
+      if (c.userN >= 6 && !D().steps.speak) { D().steps.speak = true; save(); toast("Шаг «Говорение» засчитан 💪"); }
+    } else {
+      c.api.push({ role: "user", content: "(The learner opened the chat. Start the conversation in your role with a greeting and a simple question.)" });
+    }
+    setTips([]);
+    const ai = addBubble("ai", `<span class="dim dots">печатает</span>`);
+    try {
+      const client = await aiClient();
+      const stream = client.beta.messages.stream({
+        model: AI_MODEL,
+        max_tokens: 4000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        output_config: { effort: "low" },
+        system: c.sys,
+        messages: c.api
+      });
+      let raw = "";
+      for await (const event of stream) {
+        if (!ST.on) { stream.abort(); return; }
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          raw += event.delta.text;
+          const shown = raw.split(/\n?[ \t]*###/)[0].trim();
+          if (shown) { ai.textContent = shown; scrollDown(); }
+        }
+      }
+      const msg = await stream.finalMessage();
+      if (msg.stop_reason === "refusal") {
+        ai.className = "bub err"; ai.textContent = "ИИ не стал отвечать на это сообщение. Попробуй сформулировать иначе.";
+        return;
+      }
+      // после блока fallback ответ продолжает другая модель — берём текст после него
+      let start = 0; msg.content.forEach((b, i) => { if (b.type === "fallback") start = i + 1; });
+      const text = msg.content.slice(start).filter(b => b.type === "text").map(b => b.text).join("");
+      c.api.push({ role: "assistant", content: text });
+      const r = parseAi(text);
+      ai.innerHTML = `<div>${tapWords(r.reply)}</div>${r.ru ? `<div class="ru">${esc(r.ru)}</div>` : ""}
+        <div class="tools"><button data-say="${esc(r.reply)}">🔊</button>${r.ru ? `<button data-tr>перевод</button>` : ""}<button data-say="${esc(r.reply)}" data-rate="0.7">🐢</button></div>`;
+      const trb = $("[data-tr]", ai); if (trb) trb.onclick = () => ai.classList.toggle("show");
+      $$(".w", ai).forEach(sp => sp.onclick = () => {
+        const w = lookup(sp.textContent);
+        speak(sp.textContent.replace(/[^A-Za-z']/g, ""));
+        toast(w ? `${w.en} — ${w.ru}` : "Нет в словаре — нажми «перевод»");
+      });
+      if (meBubble) {
+        const fb = document.createElement("div");
+        fb.className = "fixbox" + (r.fix.length ? "" : " ok");
+        fb.innerHTML = r.fix.length ? r.fix.map(x => "✏️ " + esc(x)).join("<br>") : "✅ Без ошибок";
+        meBubble.after(fb);
+        c.fixes.push(...r.fix);
+      }
+      setTips(r.tips);
+      scrollDown();
+      if (c.autoSpeak && r.reply) speak(r.reply);
+    } catch (e) {
+      if (!ST.on) return;
+      c.api.pop(); // запрос не прошёл — убираем реплику, чтобы её можно было отправить снова
+      if (userText) { c.userN--; inp.value = userText; if (meBubble) meBubble.remove(); }
+      ai.className = "bub err"; ai.textContent = errText(e);
+      if (!userText) { const rb = document.createElement("button"); rb.className = "btn sm"; rb.style.marginTop = "8px"; rb.textContent = "Попробовать снова"; rb.onclick = () => { ai.remove(); turn(null); }; ai.appendChild(document.createElement("br")); ai.appendChild(rb); }
+    } finally {
+      c.busy = false; if ($("#chSend")) $("#chSend").disabled = false;
+    }
+  }
+  const send = () => { const v = inp.value.trim(); if (!v || c.busy) return; inp.value = ""; turn(v); };
+  $("#chSend").onclick = send;
+  inp.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+  $("#chSpk").onclick = () => { c.autoSpeak = !c.autoSpeak; S.set.chatSpeak = c.autoSpeak; save(); $("#chSpk").textContent = c.autoSpeak ? "🔊 Озвучка вкл" : "🔇 Озвучка выкл"; if (!c.autoSpeak && TTS) TTS.cancel(); };
+  if ($("#chMic")) $("#chMic").onclick = async () => {
+    const mic = $("#chMic");
+    if (ST.rec) { try { ST.rec.stop(); } catch (e) {} return; }
+    if (TTS) TTS.cancel();
+    mic.classList.add("on"); mic.style.background = "var(--red)";
+    await wait(250); if (!ST.on) return;
+    const before = inp.value.trim();
+    ST.rec = listen(txt => { inp.value = (before + " " + txt).trim(); }, (txt, err) => {
+      mic.style.background = ""; ST.rec = null;
+      if (!txt && err) toast(SR_ERR[err] || SR_ERR["start-failed"]);
+    }, false, 20000);
+    if (!ST.rec) mic.style.background = "";
+  };
+  $("#chEnd").onclick = () => {
+    const fx = c.fixes;
+    $("#stBody").innerHTML = `<div class="big-emoji">💬</div><div class="q-mid" style="text-align:center">Диалог завершён</div>
+      <p class="muted" style="text-align:center">Твоих реплик: <b style="color:var(--text)">${c.userN}</b> · исправлений: <b style="color:var(--text)">${fx.length}</b></p>
+      ${fx.length ? `<div class="card"><div class="small muted" style="margin-bottom:6px">Над чем поработать:</div>${fx.map(x => `<div class="small" style="padding:5px 0;border-bottom:1px solid var(--line)">✏️ ${esc(x)}</div>`).join("")}
+        <button class="btn primary wide" id="chAddFix" style="margin-top:12px">🧠 Добавить исправления в слова</button></div>` : `<div class="card" style="text-align:center"><b>Ни одной ошибки 💪</b></div>`}
+      <button class="btn wide big" id="chClose" style="margin-top:12px">Закрыть</button>`;
+    $("#chClose").onclick = closeStage;
+    if ($("#chAddFix")) $("#chAddFix").onclick = () => {
+      let n = 0;
+      for (const x of fx) {
+        const m = x.match(/^(.*?)\s*(?:→|->)\s*(.*?)(?:\s+[—–-]\s+(.*))?$/);
+        if (!m || !m[2]) continue;
+        if (addOwn(m[2], `вместо «${m[1]}»${m[3] ? ": " + m[3] : ""}`)) n++;
+      }
+      save(); $("#chAddFix").disabled = true; toast(n ? `Добавлено в «Мои слова»: ${n}` : "Уже добавлены");
+    };
+  };
+  turn(null);
 };
 
 /* ---------- профили ---------- */
