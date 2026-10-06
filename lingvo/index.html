@@ -898,6 +898,104 @@ T.cloze = (t, el) => {
   inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); done ? $("#nx", el).click() : $("#chk", el).click(); } };
 };
 
+/* Проверка выученных слов: в любой момент, без самооценки — ответ
+   проверяет приложение. Расписание повторений не меняется; слова с ошибкой
+   в конце можно одной кнопкой вернуть в повторение. */
+T.verify = (t, el) => {
+  const w = t.w, c = ST.ctx, cz = clozeOf(w);
+  const mode = t.mode || (t.mode = cz && Math.random() < 0.4 ? "cloze" : Math.random() < 0.5 ? "type" : "pick");
+  const done = ok => {
+    if (!ok) c.wrong.push(w);
+    setTimeout(() => next(ok), ok ? 450 : 0);
+  };
+  if (mode === "pick") {
+    const pool = shuffle([...WORDS, ...S.own].filter(x => x.id !== w.id && x.ru !== w.ru && x.kind === w.kind));
+    const opts = shuffle([w, ...pool.slice(0, 3)]);
+    el.innerHTML = `<div class="q-label">Проверка · что это значит?</div>
+      <div class="row"><div class="q-big" style="flex:1">${esc(w.en)}</div>${speakBtn(w.en)}</div>
+      <div class="opts">${opts.map(o => `<button class="opt" data-id="${esc(o.id)}">${esc(o.ru)}</button>`).join("")}<button class="opt idk" data-id="">Не знаю</button></div>`;
+    $$(".opt", el).forEach(b => b.onclick = () => {
+      const ok = b.dataset.id === w.id;
+      $$(".opt", el).forEach(x => { x.disabled = true; if (x.dataset.id === w.id) x.classList.add("ok"); });
+      if (!ok && b.dataset.id) b.classList.add("bad");
+      beep(ok); if (!ok) { speak(w.en); setTimeout(() => done(false), 1300); } else done(true);
+    });
+    return;
+  }
+  const isCz = mode === "cloze" && cz;
+  const target = isCz ? cz.ans : w.en;
+  el.innerHTML = `<div class="q-label">Проверка · ${isCz ? "вставь слово во фразу" : "напиши по-английски"}</div>
+    ${isCz ? `<div class="q-mid" style="line-height:1.5">${esc(cz.before)}<span style="color:var(--cyan);letter-spacing:2px">${esc(cz.ans[0] + "_".repeat(Math.max(2, cz.ans.length - 1)))}</span>${esc(cz.after)}</div><p class="small muted">${esc(w.exr || "")}</p>`
+           : `<div class="q-mid">${esc(w.ru)}</div>${w.exr ? `<p class="small muted">Ситуация: ${esc(w.exr)}</p>` : ""}`}
+    <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ответ…">
+    <div class="actions"><button class="btn" id="idk">Не помню</button><button class="btn primary" id="chk">Проверить</button></div><div id="fbx"></div>`;
+  const inp = $("#ans", el); setTimeout(() => inp.focus(), 60);
+  let answered = false;
+  const finish = v => {
+    if (answered) return; answered = true;
+    let r = v ? check(v, target) : 0;
+    if (r < 2 && v && isCz && check(v, w.en) === 2) r = 1;
+    const ok = r > 0;
+    beep(ok); speak(isCz ? w.ex : w.en);
+    feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
+      `<b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — засчитано." : esc(coach("wrong"))}</b><br>${isCz ? `${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}` : `<b style="color:#a5f3fc">${esc(w.en)}</b> — ${esc(w.ru)}`}`);
+    $(".actions", el).innerHTML = (ok ? "" : `<button class="btn" id="typo">Я знал, опечатка</button>`) + `<button class="btn primary" id="nx">Дальше</button>`;
+    $("#nx", el).onclick = () => done(ok);
+    if ($("#typo", el)) $("#typo", el).onclick = () => done(true);
+    setTimeout(() => $("#nx", el) && $("#nx", el).focus(), 50);
+  };
+  $("#chk", el).onclick = () => { if (inp.value.trim()) finish(inp.value); };
+  $("#idk", el).onclick = () => finish("");
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); answered ? $("#nx", el).click() : $("#chk", el).click(); } };
+};
+let VERIFY_N = 20;
+function verifySets() {
+  const ids = Object.keys(S.cards).filter(id => itemById(id));
+  const t = today();
+  return {
+    known: ids.filter(id => isKnown(S.cards[id])),
+    marked: ids.filter(id => { const c = S.cards[id]; return isKnown(c) && !c.last; }),
+    studied: ids.filter(id => S.cards[id].last && S.cards[id].due > t),
+    all: ids
+  };
+}
+function verifySheet() {
+  const v = verifySets();
+  const row = (k, e, name, sub, n) => `<button class="li" data-vk="${k}" ${n ? "" : "disabled style=\"opacity:.45\""}><span style="font-size:20px">${e}</span><div class="lb"><div class="lt">${name} · ${n}</div><div class="ls">${sub}</div></div><span class="dim">›</span></button>`;
+  openSheet(`<div class="sheet-title">✅ Проверить выученные</div>
+    <p class="small muted" style="margin-top:-6px">Проверка в любой момент, не дожидаясь повторения. Отвечаешь сам — приложение проверяет. Расписание повторений не меняется; слова, где ошибся, в конце можно вернуть в повторение.</p>
+    <div class="field"><label>Сколько слов</label><div class="seg" id="vN">${[20, 50, 100, 0].map(n => `<button data-n="${n}" class="${VERIFY_N === n ? "on" : ""}">${n || "Все"}</button>`).join("")}</div></div>
+    ${row("known", "🏆", "Выученные", "интервал повторения 3 недели и больше", v.known.length)}
+    ${row("marked", "🙋", "Отмеченные «Уже знаю»", "проверить, правда ли знаешь", v.marked.length)}
+    ${row("studied", "🧠", "Повторённые, срок ещё не подошёл", "проверить заранее", v.studied.length)}
+    ${row("all", "📚", "Вся колода", "все слова, которые ты учишь", v.all.length)}`);
+  $$("#vN button").forEach(b => b.onclick = () => { VERIFY_N = +b.dataset.n; $$("#vN button").forEach(x => x.classList.toggle("on", x === b)); });
+  $$("[data-vk]").forEach(b => b.onclick = () => {
+    const list = v[b.dataset.vk]; if (!list.length) return;
+    closeSheet(); startVerify(list.map(itemById), b.querySelector(".lt").textContent.replace(/ · \d+$/, ""));
+  });
+}
+function startVerify(words, title) {
+  const pick = shuffle(words).slice(0, VERIFY_N || words.length);
+  const ctx = { wrong: [] };
+  runStage("Проверка · " + title, pick.map(w => ({ type: "verify", w })), r => {
+    const wr = ctx.wrong, total = r.ok + r.bad;
+    return {
+      html: `<div class="grid2" style="margin-top:12px"><div class="stat"><b>${r.ok}/${total}</b><span>помнишь</span></div><div class="stat"><b>${total ? Math.round(r.ok / total * 100) : 0}%</b><span>точность</span></div></div>
+        ${wr.length ? `<div class="card" style="margin-top:12px"><div class="small muted" style="margin-bottom:8px">Забылось (${wr.length}):</div>
+          ${wr.map(w => `<div class="row" style="padding:4px 0;border-bottom:1px solid var(--line)"><b style="flex:1">${esc(w.en)}</b><span class="muted small" style="text-align:right">${esc(w.ru)}</span></div>`).join("")}
+          <button class="btn primary wide" id="vBack" style="margin-top:12px">🧠 Вернуть их в повторение</button></div>`
+          : `<div class="card" style="margin-top:12px;text-align:center"><b>Всё помнишь 💪</b></div>`}`,
+      bind: () => {
+        if ($("#vBack")) $("#vBack").onclick = () => {
+          for (const w of wr) { const c = S.cards[w.id]; if (c) grade(c, 0); }
+          save(); $("#vBack").disabled = true; toast(`В повторении с завтра: ${wr.length}`);
+        };
+      }
+    };
+  }, { ctx });
+}
+
 /* правило грамматики */
 T.rule = (t, el) => {
   el.innerHTML = `<div class="q-label">Правило · <span class="lvl ${t.g.lvl}">${t.g.lvl}</span></div>
@@ -1485,6 +1583,7 @@ function renderWords() {
     </div>
     <div class="gap8" style="margin-top:12px">
       <button class="btn primary wide" id="rv" ${due ? "" : "disabled"}>🧠 Повторить сейчас${due ? ` (${due})` : ""}</button>
+      <button class="btn wide" id="verify">✅ Проверить выученные · ${verifySets().known.length}</button>
       <button class="btn wide" id="mara">🏁 Марафон слов · ${maraStats(WORDS.concat(S.own)).known} из ${WORDS.length + S.own.length} знаю</button>
       <div class="grid2"><button class="btn" id="nw">✨ +5 новых</button><button class="btn" id="add">＋ Своё слово</button></div>
       <button class="btn ghost wide sm" id="imp">Импорт списка слов</button>
@@ -1495,6 +1594,7 @@ function renderWords() {
     <div id="wl"></div>`;
   $("#rv").onclick = () => startStep("review", false);
   $("#mara").onclick = maraSheet;
+  $("#verify").onclick = verifySheet;
   $("#nw").onclick = () => { const keep = P().newPerDay; S.profile && (S.profile.newPerDay = D().nw + 5); startStep("new", false); S.profile && (S.profile.newPerDay = keep); };
   $("#add").onclick = () => addWordSheet();
   $("#imp").onclick = importSheet;
