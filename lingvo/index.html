@@ -822,6 +822,82 @@ T.recall = (t, el) => {
   };
 };
 
+/* Доп. режимы повторения (не заменяют старые, а идут вперемешку с ними):
+   «по-русски → вспомни английское» и «вставь слово во фразу из примера».
+   Выключаются в настройках (S.set.newModes = false). */
+const gradeBox = (w, el, t) => {
+  const c = S.cards[w.id] || newCard(0);
+  const iv = q => { const x = Object.assign({}, c); grade(x, q); return x.ivl; };
+  const lbl = d => d <= 1 ? "завтра" : d < 30 ? d + " дн" : Math.round(d / 30) + " мес";
+  return `<div class="grades">
+    <button class="g0" data-q="0">Забыл<small>сегодня</small></button>
+    <button class="g1" data-q="1">Трудно<small>${lbl(iv(1))}</small></button>
+    <button class="g2" data-q="2">Помню<small>${lbl(iv(2))}</small></button>
+    <button class="g3" data-q="3">Легко<small>${lbl(iv(3))}</small></button></div>`;
+};
+T.recallRu = (t, el) => {
+  const w = t.w;
+  el.innerHTML = `
+    <div class="q-label">Вспомни по-английски</div>
+    <div class="q-big" style="font-size:26px">${esc(w.ru)}</div>
+    ${w.exr ? `<p class="small muted">Ситуация: ${esc(w.exr)}</p>` : ""}
+    <div id="rrAns" style="display:none"><div class="row"><div class="q-big" style="flex:1;color:#a5f3fc">${esc(w.en)}</div>${speakBtn(w.en)}</div>${exHtml(w)}</div>
+    <div id="rr"><button class="btn primary big wide" id="show" style="margin-top:22px">Показать ответ</button>
+    <p class="small dim" style="text-align:center">Сначала скажи слово вслух сам, потом проверь.</p></div>`;
+  $("#show", el).onclick = () => {
+    $("#rrAns", el).style.display = ""; speak(w.en);
+    $("#rr", el).innerHTML = gradeBox(w, el, t);
+    $$(".grades button", el).forEach(b => b.onclick = () => { const q = +b.dataset.q; reviewGrade(w, q); next(q > 0); });
+  };
+};
+/* Найти слово в его примере: точное совпадение или форма (arrive → arrived). */
+function clozeOf(w) {
+  if (!w || !w.ex || w.kind === "ch") return null;
+  const ex = w.ex, en = w.en.replace(/[?.!…]+$/, "").trim(), low = en.toLowerCase();
+  if (/\s/.test(en)) {
+    const i = ex.toLowerCase().indexOf(low);
+    return i < 0 ? null : { before: ex.slice(0, i), ans: ex.slice(i, i + en.length), after: ex.slice(i + en.length) };
+  }
+  const re = /[A-Za-z']+/g; let m;
+  while ((m = re.exec(ex))) {
+    const tk = m[0].toLowerCase();
+    if (tk === low || (low.length >= 4 && tk.startsWith(low.slice(0, -1)) && tk.length - low.length <= 3))
+      return { before: ex.slice(0, m.index), ans: m[0], after: ex.slice(m.index + m[0].length) };
+  }
+  return null;
+}
+T.cloze = (t, el) => {
+  const w = t.w, cz = clozeOf(w);
+  if (!cz) { t.type = "recallRu"; return T.recallRu(t, el); }
+  const hint = cz.ans[0] + "_".repeat(Math.max(2, cz.ans.length - 1));
+  el.innerHTML = `
+    <div class="q-label">Вставь слово во фразу</div>
+    <div class="q-mid" style="line-height:1.5">${esc(cz.before)}<span style="color:var(--cyan);letter-spacing:2px">${esc(hint)}</span>${esc(cz.after)}</div>
+    <p class="small muted">${esc(w.exr || "")}</p>
+    <p class="small dim">Подсказка: ${esc(w.ru)}</p>
+    <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="пропущенное слово…">
+    <div class="actions"><button class="btn" id="idk">Не помню</button><button class="btn primary" id="chk">Проверить</button></div>
+    <div id="fbx"></div>`;
+  const inp = $("#ans", el); setTimeout(() => inp.focus(), 60);
+  let done = false;
+  const finish = v => {
+    if (done) return; done = true;
+    let r = v ? check(v, cz.ans) : 0, note = "";
+    if (r < 2 && v && check(v, w.en) === 2 && cz.ans.toLowerCase() !== w.en.toLowerCase()) { r = 1; note = ` Здесь нужна форма «${cz.ans}».`; }
+    beep(r > 0); speak(w.ex);
+    feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
+      `<div class="row" style="align-items:flex-start"><div style="flex:1"><b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти." + esc(note) : esc(coach("wrong"))}</b><br>${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}</div>${speakBtn(w.ex)}</div>`);
+    const q = r === 2 ? 2 : r === 1 ? 1 : 0;
+    $(".actions", el).innerHTML = (q ? "" : `<button class="btn" id="typo">Я знал, опечатка</button>`) + `<button class="btn primary" id="nx">Дальше</button>`;
+    $("#nx", el).onclick = () => { reviewGrade(w, q); next(q > 0); };
+    if ($("#typo", el)) $("#typo", el).onclick = () => { reviewGrade(w, 1); next(true); };
+    setTimeout(() => $("#nx", el) && $("#nx", el).focus(), 50);
+  };
+  $("#chk", el).onclick = () => { if (inp.value.trim()) finish(inp.value); };
+  $("#idk", el).onclick = () => finish("");
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); done ? $("#nx", el).click() : $("#chk", el).click(); } };
+};
+
 /* правило грамматики */
 T.rule = (t, el) => {
   el.innerHTML = `<div class="q-label">Правило · <span class="lvl ${t.g.lvl}">${t.g.lvl}</span></div>
@@ -1106,7 +1182,15 @@ function startStep(k, chain) {
   if (k === "review") {
     const ids = dueIds().slice(0, 120);
     if (!ids.length) { done(); toast("Повторять нечего — всё по графику"); return chain ? (nextUndone() ? startStep(nextUndone(), true) : closeStage()) : render(); }
-    const tasks = shuffle(ids).map(id => { const w = itemById(id), c = S.cards[id]; return { type: c.reps >= 2 && Math.random() < 0.55 ? "type" : "recall", w, review: true }; });
+    const tasks = shuffle(ids).map(id => {
+      const w = itemById(id), c = S.cards[id], r = Math.random();
+      // доп. режимы идут вперемешку со старыми; без них — прежнее поведение
+      if (S.set.newModes !== false) {
+        if (c.reps >= 1 && r < 0.25 && clozeOf(w)) return { type: "cloze", w, review: true };
+        if (r < 0.5) return { type: "recallRu", w, review: true };
+      }
+      return { type: c.reps >= 2 && Math.random() < 0.55 ? "type" : "recall", w, review: true };
+    });
     runStage("Повторение", tasks, () => { done(); }, { chain, step: k });
   } else if (k === "new") {
     const left = Math.max(1, P().newPerDay - D().nw);
@@ -1662,6 +1746,7 @@ function renderProg() {
       <div class="field"><label>Голос озвучки</label><select id="sVoice"><option value="">Автоматически</option>${VOICES.map(v => `<option ${S.set.voice === v.name ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div>
       <div class="field"><label>Скорость речи: <span id="rateV">${S.set.rate}</span></label><input type="range" id="sRate" min="0.6" max="1.2" step="0.05" value="${S.set.rate}"></div>
       ${SR ? `<div class="row" style="margin-bottom:12px"><span class="small">Проверка речи распознаванием<br><span class="dim">выкл — шэдоуинг через запись своего голоса</span></span><button class="btn sm sp" id="sSr">${S.set.srOff ? "Выкл" : "Вкл"}</button></div>` : ""}
+      <div class="row" style="margin-bottom:12px"><span class="small">Доп. режимы повторения<br><span class="dim">«по-русски → английское» и «слово во фразе»</span></span><button class="btn sm sp" id="sNm">${S.set.newModes === false ? "Выкл" : "Вкл"}</button></div>
       <div class="row" style="margin-bottom:12px"><span class="small">Звуки и вибрация</span><button class="btn sm sp" id="sSfx">${S.set.sfx ? "Вкл" : "Выкл"}</button></div>
       <div class="gap8">
         <button class="btn wide" id="sTest">🎯 Пройти тест уровня заново</button>
@@ -1678,6 +1763,7 @@ function renderProg() {
   $("#sRate").oninput = e => { S.set.rate = +e.target.value; $("#rateV").textContent = S.set.rate; save(); };
   $("#sRate").onchange = () => speak("This is how fast I speak.");
   if ($("#sSr")) $("#sSr").onclick = () => { S.set.srOff = !S.set.srOff; save(); render(); };
+  $("#sNm").onclick = () => { S.set.newModes = S.set.newModes === false; save(); render(); };
   $("#sSfx").onclick = () => { S.set.sfx = !S.set.sfx; save(); render(); };
   $("#sTest").onclick = startTest;
   $("#sExp").onclick = () => {
