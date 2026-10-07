@@ -314,6 +314,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
 <script src="words-ext.js"></script>
 <script src="course.js"></script>
 <script src="topics.js"></script>
+<script src="reading.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -394,7 +395,7 @@ const saveProfiles = () => { try { localStorage.setItem(PKEY, JSON.stringify(PRO
 const curProfile = () => PROF.list.find(x => x.id === PROF.cur);
 const dataKey = id => OLD_KEY + ":" + (id || PROF.cur);
 function blank() {
-  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {},
+  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {}, trans: {},
            set: { rate: 0.9, voice: "", coach: "hard", sfx: true } };
 }
 function load() {
@@ -1183,6 +1184,55 @@ T.listenLoop = (t, el) => {
   show(); loop();
 };
 
+/* ---------- перевод текста ----------
+   EN→RU: читаешь фразу, переводишь сам (письменно или в уме), сверяешься
+   с эталоном и оцениваешь себя. RU→EN: пишешь по-английски, совпавшие
+   с эталоном слова подсвечиваются. Ничего в повторении не меняет. */
+function startTranslate(tx, dir) {
+  const sents = tx.pairs.map(([en, ru]) => ({ en: en.replace(/^—\s*/, ""), ru: ru.replace(/^—\s*/, "") }));
+  const ctx = { tx, dir, marks: [] };
+  runStage((dir === "ru" ? "Перевод на русский · " : "Перевод на английский · ") + tx.title, sents.map(s => ({ type: "trans", s, dir })), r => {
+    const m = ctx.marks, good = m.filter(x => x.m === 2).length, part = m.filter(x => x.m === 1).length;
+    const pct = m.length ? Math.round((good + part * 0.5) / m.length * 100) : 0;
+    S.trans = S.trans || {}; const prev = S.trans[tx.id] || { best: 0, runs: 0 };
+    S.trans[tx.id] = { best: Math.max(prev.best, pct), runs: prev.runs + 1, last: today() };
+    D().xp += 5; save();
+    const bad = m.filter(x => x.m < 2);
+    return {
+      html: `<div class="grid2" style="margin-top:12px"><div class="stat"><b>${pct}%</b><span>точность перевода</span></div><div class="stat"><b>${good}/${m.length}</b><span>фраз перевёл верно</span></div></div>
+        ${bad.length ? `<div class="card" style="margin-top:12px"><div class="small muted" style="margin-bottom:6px">Фразы, над которыми поработать:</div>
+          ${bad.map(x => `<div class="small" style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(x.s.en)}</b><br><span class="muted">${esc(x.s.ru)}</span></div>`).join("")}
+          <button class="btn primary wide" id="trAdd" style="margin-top:12px">🧠 Добавить эти фразы в слова</button></div>` : ""}`,
+      bind: () => {
+        if ($("#trAdd")) $("#trAdd").onclick = () => {
+          let n = 0; for (const x of bad) if (addOwn(x.s.en, x.s.ru)) n++;
+          save(); $("#trAdd").disabled = true; toast(n ? `Добавлено в «Мои слова»: ${n}` : "Уже добавлены");
+        };
+      }
+    };
+  }, { ctx });
+}
+T.trans = (t, el) => {
+  const s = t.s, toRu = t.dir === "ru", c = ST.ctx;
+  el.innerHTML = `<div class="q-label">${toRu ? "Переведи на русский" : "Переведи на английский"}</div>
+    <div class="card"><div class="row" style="align-items:flex-start"><div style="flex:1;font-size:19px;font-weight:600;line-height:1.5" id="trSrc">${toRu ? tapWords(s.en) : esc(s.ru)}</div>${toRu ? speakBtn(s.en) : ""}</div></div>
+    <textarea class="answer" id="trIn" rows="3" autocomplete="off" ${toRu ? "" : 'autocapitalize="sentences" autocorrect="off" spellcheck="false"'} placeholder="${toRu ? "твой перевод (можно и в уме)…" : "по-английски…"}"></textarea>
+    <div class="actions"><button class="btn primary" id="trShow">Сравнить с эталоном</button></div>
+    <div id="trRes"></div>`;
+  if (toRu) $$("#trSrc .w", el).forEach(sp => sp.onclick = () => { const w = lookup(sp.textContent); speak(sp.textContent.replace(/[^A-Za-z']/g, "")); toast(w ? `${w.en} — ${w.ru}` : "Нет в словаре — смотри эталон"); });
+  $("#trShow", el).onclick = () => {
+    const v = $("#trIn", el).value.trim();
+    let extra = "";
+    if (!toRu && v) { const d = wordDiff(v, s.en); extra = `<div class="small muted" style="margin-top:6px">Совпало слов с эталоном: <b style="color:var(--text)">${Math.round(d.score * 100)}%</b> — переводов бывает несколько, оцени смысл сам</div><div class="diff" style="margin-top:6px">${d.html}</div>`; }
+    $("#trRes", el).innerHTML = `<div class="fb mid" style="margin-top:12px"><div class="small muted">Эталон:</div><div class="row" style="align-items:flex-start"><div style="flex:1;font-size:17px;margin-top:4px">${esc(toRu ? s.ru : s.en)}</div>${toRu ? "" : speakBtn(s.en)}</div>${extra}</div>
+      <div class="small dim" style="margin:10px 0 6px">Как получилось? (по смыслу, не дословно)</div>
+      <div class="grid2" style="grid-template-columns:repeat(3,1fr)"><button class="btn sm" data-m="0">❌ Не понял</button><button class="btn sm" data-m="1">🟡 Частично</button><button class="btn sm green" data-m="2">✅ Перевёл</button></div>`;
+    $(".actions", el).innerHTML = "";
+    if (!toRu) speak(s.en);
+    $$("[data-m]", el).forEach(b => b.onclick = () => { const m = +b.dataset.m; c.marks.push({ s, m }); next(m === 2 ? true : m === 0 ? false : null); });
+  };
+};
+
 /* правило грамматики */
 T.rule = (t, el) => {
   el.innerHTML = `<div class="q-label">Правило · <span class="lvl ${t.g.lvl}">${t.g.lvl}</span></div>
@@ -1892,9 +1942,17 @@ function renderGram() {
 let RT = "texts";
 function renderRead() {
   const el = $("#v-read"), lvl = clamp(lvIdx(P().level), 1, 4);
-  const tabs = [["texts", "📖 Тексты"], ...Object.entries(MEDIA_KINDS)];
+  const tabs = [["texts", "📖 Тексты"], ["reading", "📚 Чтение"], ...Object.entries(MEDIA_KINDS)];
   let html = `<div class="seg" id="rtab" style="margin-bottom:12px;overflow-x:auto">${tabs.map(([k, n]) => `<button data-rt="${k}" class="${RT === k ? "on" : ""}" style="white-space:nowrap">${n}</button>`).join("")}</div>`;
-  if (RT === "texts") {
+  if (RT === "reading") {
+    html += `<div class="card"><div class="small muted" style="line-height:1.55">Тексты подлиннее — истории и статьи. Прочитай целиком, потом сделай <b style="color:var(--text)">✍️ Перевод</b>: переводишь фразы сам, а приложение показывает эталон. Можно и наоборот — с русского на английский. Тап по слову — перевод.</div></div>`;
+    for (const L of ["A1", "A2", "B1", "B2"]) {
+      html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
+      html += READING.filter(t => t.lvl === L).map(t => { const tr = (S.trans || {})[t.id];
+        return `<button class="li" data-t="${t.id}"><span style="font-size:18px">${tr ? "✅" : S.read[t.id] ? "📖" : "📚"}</span>
+        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]}` : ""}${tr ? ` · перевод ${tr.best}%` : ""}</div></div><span class="dim">›</span></button>`; }).join("");
+    }
+  } else if (RT === "texts") {
     html += `<div class="card"><div class="small muted">Понятный ввод: читай и слушай тексты своего уровня. Тап по слову — перевод и «в колоду», 🔊 — озвучка фразы. Слушай каждый текст несколько раз, потом повторяй вслух.</div></div>`;
     for (const L of ["A1", "A2", "B1", "B2"]) {
       html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
@@ -1924,7 +1982,7 @@ function renderRead() {
   }
   el.innerHTML = html;
   $$("#rtab button").forEach(b => b.onclick = () => { RT = b.dataset.rt; renderRead(); window.scrollTo(0, 0); });
-  $$("[data-t]", el).forEach(b => b.onclick = () => openReader(TEXTS.find(t => t.id === b.dataset.t)));
+  $$("[data-t]", el).forEach(b => b.onclick = () => openReader([...TEXTS, ...READING].find(t => t.id === b.dataset.t)));
   $$("[data-inp]", el).forEach(b => b.onclick = () => { D().inp += +b.dataset.inp; save(); render(); toast(`+${b.dataset.inp} мин погружения засчитано`); });
 }
 function openReader(tx) {
@@ -1950,7 +2008,8 @@ T.reader = (t, el) => {
   el.innerHTML = `<div class="row" style="margin-bottom:6px"><span class="lvl ${tx.lvl}">${tx.lvl}</span><div class="q-mid" style="margin:0;flex:1">${esc(tx.title)}</div></div>
     <div class="row wrap" style="gap:6px;margin-bottom:6px">
       <button class="btn sm" id="rAll">▶ Слушать всё</button><button class="btn sm" id="rTr">🇷🇺 Перевод</button>
-      <button class="btn sm" id="rSh">🗣 Шэдоуинг</button><button class="btn sm" id="rDi">✍️ Диктант</button></div>
+      <button class="btn sm" id="rSh">🗣 Шэдоуинг</button><button class="btn sm" id="rDi">✍️ Диктант</button>
+      <button class="btn sm" id="rTrRu">📝 Перевод EN→RU</button><button class="btn sm" id="rTrEn">🔁 Перевод RU→EN</button></div>
     <div class="reader" id="rd">${tx.pairs.map(([en, ru], k) => `<div class="sent" data-k="${k}"><div class="en">${en.split(/(\s+)/).map(p => /\s+/.test(p) ? p : `<span>${esc(p)}</span>`).join("")}</div>
       <div class="tr">${esc(ru)}</div><div class="tools"><button data-say="${esc(en.replace(/^—\s*/, ""))}">🔊</button><button data-tr>перевод</button><button data-say="${esc(en.replace(/^—\s*/, ""))}" data-rate="0.65">🐢</button></div></div>`).join("")}</div>
     <button class="btn primary big wide" id="rDone" style="margin-top:16px">Прочитал ✓</button><div style="height:220px"></div>`;
@@ -1971,6 +2030,8 @@ T.reader = (t, el) => {
   const sents = tx.pairs.map(([en, ru]) => ({ en: en.replace(/^—\s*/, ""), ru: ru.replace(/^—\s*/, "") }));
   $("#rSh").onclick = () => { $("#pop").classList.remove("on"); runStage("Шэдоуинг · " + tx.title, sents.map(s => ({ type: "shadow", s })), null, {}); };
   $("#rDi").onclick = () => { $("#pop").classList.remove("on"); runStage("Диктант · " + tx.title, sents.map(s => ({ type: "dict", s })), null, {}); };
+  $("#rTrRu").onclick = () => { $("#pop").classList.remove("on"); startTranslate(tx, "ru"); };
+  $("#rTrEn").onclick = () => { $("#pop").classList.remove("on"); startTranslate(tx, "en"); };
   $("#rDone").onclick = () => { $("#pop").classList.remove("on"); S.read[tx.id] = (S.read[tx.id] || 0) + 1; D().xp += 5; save(); closeStage(); toast("Засчитано. Перечитай через пару дней — зайдёт ещё лучше"); };
   $$(".sent .en span", el).forEach(sp => sp.onclick = () => {
     $$(".sent .en span.sel", el).forEach(x => x.classList.remove("sel")); sp.classList.add("sel");
