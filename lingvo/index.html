@@ -394,7 +394,7 @@ const saveProfiles = () => { try { localStorage.setItem(PKEY, JSON.stringify(PRO
 const curProfile = () => PROF.list.find(x => x.id === PROF.cur);
 const dataKey = id => OLD_KEY + ":" + (id || PROF.cur);
 function blank() {
-  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {},
+  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {},
            set: { rate: 0.9, voice: "", coach: "hard", sfx: true } };
 }
 function load() {
@@ -551,6 +551,17 @@ function speak(text, rate) {
     TTS.speak(u);
   });
 }
+function speakRu(text) {
+  return new Promise(res => {
+    if (!TTS) return res();
+    const v = TTS.getVoices().find(x => /^ru[-_]/i.test(x.lang));
+    if (!v) return res(); // нет русского голоса — русский только на экране
+    const u = new SpeechSynthesisUtterance(String(text)); u.voice = v; u.lang = v.lang; u.rate = 1;
+    let done = false; const fin = () => { if (!done) { done = true; res(); } };
+    u.onend = fin; u.onerror = fin; setTimeout(fin, 2500 + String(text).length * 120);
+    TTS.speak(u);
+  });
+}
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const SR_ERR = {
   "not-allowed": "Нет доступа к микрофону. Разреши микрофон для сайта в настройках браузера.",
@@ -697,7 +708,9 @@ document.addEventListener("click", e => {
   speak(b.dataset.say, b.dataset.rate ? +b.dataset.rate : undefined);
 });
 function exHtml(w) {
-  return w.ex ? `<div class="q-ex"><div class="row" style="align-items:flex-start"><div style="flex:1">${esc(w.ex)}${w.exr ? `<div class="ru">${esc(w.exr)}</div>` : ""}</div>${speakBtn(w.ex)}</div></div>` : "";
+  const note = S.notes && S.notes[w.id];
+  return (w.ex ? `<div class="q-ex"><div class="row" style="align-items:flex-start"><div style="flex:1">${esc(w.ex)}${w.exr ? `<div class="ru">${esc(w.exr)}</div>` : ""}</div>${speakBtn(w.ex)}</div></div>` : "")
+    + (note ? `<div class="q-ex" style="border-color:rgba(245,158,11,.45)">💡 ${esc(note)}</div>` : "");
 }
 function feedback(el, kind, html) {
   const d = document.createElement("div"); d.className = "fb " + kind; d.innerHTML = html; el.appendChild(d); return d;
@@ -995,6 +1008,180 @@ function startVerify(words, title) {
     };
   }, { ctx });
 }
+
+/* ---------- заучивание трудных слов ----------
+   Отдельная тренировка, расписание повторений не меняет. Каждое слово нужно
+   пройти 3 раза правильно по ступеням (узнать → выбрать английское / вставить
+   во фразу → написать), между ступенями слово уходит на 3–6 карточек назад;
+   ошибка возвращает его на первую ступень. */
+function weakWords() {
+  const out = [], seen = new Set(), m = S.mara || {};
+  const add = w => { if (w && !seen.has(w.id)) { seen.add(w.id); out.push(w); } };
+  Object.keys(S.cards).filter(id => S.cards[id].lapses > 0 && !isKnown(S.cards[id]))
+    .sort((a, b) => S.cards[b].lapses - S.cards[a].lapses).forEach(id => add(itemById(id)));
+  Object.keys(m).filter(id => m[id] === 0).forEach(id => add(itemById(id)));
+  return out;
+}
+function learningWords() {
+  const weak = new Set(weakWords().map(w => w.id));
+  return Object.keys(S.cards).filter(id => !isKnown(S.cards[id]) && !weak.has(id) && itemById(id))
+    .sort((a, b) => S.cards[a].ease - S.cards[b].ease || S.cards[a].ivl - S.cards[b].ivl).map(itemById);
+}
+let DRILL_N = 7;
+function drillSheet() {
+  const weak = weakWords(), learn = learningWords();
+  const row = (k, e, name, sub, n) => `<button class="li" data-dk="${k}" ${n ? "" : "disabled style=\"opacity:.45\""}><span style="font-size:20px">${e}</span><div class="lb"><div class="lt">${name} · ${n}</div><div class="ls">${sub}</div></div><span class="dim">›</span></button>`;
+  openSheet(`<div class="sheet-title">🔥 Заучивание</div>
+    <p class="small muted" style="margin-top:-6px">Небольшая пачка слов. Каждое нужно ответить правильно 3 раза: узнать → выбрать английское или вставить во фразу → написать самому. Между разами слово уходит назад, чтобы ты успел его почти забыть и вспомнить снова — так оно и запоминается. Ошибся — слово начнётся заново.</p>
+    <div class="field"><label>Слов в пачке</label><div class="seg" id="dN">${[5, 7, 10].map(n => `<button data-n="${n}" class="${DRILL_N === n ? "on" : ""}">${n}</button>`).join("")}</div></div>
+    ${row("weak", "🔥", "Трудные", "забытые в повторении и ошибки марафона", weak.length)}
+    ${row("learn", "🧠", "В обучении", "ещё не выученные, сначала самые трудные", learn.length)}
+    ${row("all", "📚", "Всё вместе", "сначала трудные, потом в обучении", weak.length + learn.length)}
+    <div class="sect-title">Чаще перед глазами</div>
+    <button class="btn wide" id="dListen" ${weak.length + learn.length ? "" : "disabled"}>🎧 Слушать по кругу</button>
+    <p class="small dim" style="margin:8px 0 0;line-height:1.5">Озвучка как плейлист: английское — русское — пример. Можно слушать в дороге с телефоном в кармане. 💡 Свою подсказку-ассоциацию к слову можно записать в заучивании — она будет показываться везде.</p>`);
+  $$("#dN button").forEach(b => b.onclick = () => { DRILL_N = +b.dataset.n; $$("#dN button").forEach(x => x.classList.toggle("on", x === b)); });
+  const sets = { weak, learn, all: [...weak, ...learn] };
+  $$("[data-dk]").forEach(b => b.onclick = () => { const l = sets[b.dataset.dk]; if (!l.length) return; closeSheet(); startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N)); });
+  $("#dListen").onclick = () => { closeSheet(); startListenLoop([...weak, ...learn].slice(0, 40)); };
+}
+function startDrill(batch, rest) {
+  const ctx = { mastered: 0, total: batch.length, miss: {}, rest };
+  const tasks = batch.map(w => ({ type: "dIntro", w }));
+  shuffle(batch).forEach(w => tasks.push({ type: "drill", w, step: 0 }));
+  runStage("Заучивание", tasks, r => {
+    const hard = batch.filter(w => (ctx.miss[w.id] || 0) >= 2);
+    return {
+      html: `<div class="grid2" style="margin-top:12px"><div class="stat"><b>${ctx.mastered}/${ctx.total}</b><span>закреплено</span></div><div class="stat"><b>${Object.values(ctx.miss).reduce((a, b) => a + b, 0)}</b><span>ошибок по пути</span></div></div>
+        ${hard.length ? `<div class="card" style="margin-top:12px"><div class="small muted" style="margin-bottom:6px">Самые упрямые — придумай к ним подсказку (💡 в слове):</div>${hard.map(w => `<div class="row" style="padding:4px 0;border-bottom:1px solid var(--line)"><b style="flex:1">${esc(w.en)}</b><span class="muted small">${esc(w.ru)}</span></div>`).join("")}</div>` : ""}
+        ${rest.length ? `<button class="btn primary wide" id="dMore" style="margin-top:12px">🔥 Следующие ${Math.min(DRILL_N, rest.length)} слов</button>` : ""}
+        <button class="btn wide" id="dAgain" style="margin-top:8px">🔁 Эту пачку ещё раз</button>`,
+      bind: () => {
+        if ($("#dMore")) $("#dMore").onclick = () => startDrill(rest.slice(0, DRILL_N), rest.slice(DRILL_N));
+        $("#dAgain").onclick = () => startDrill(batch, rest);
+      }
+    };
+  }, { ctx });
+}
+/* знакомство со словом + своя подсказка */
+T.dIntro = (t, el) => {
+  const w = t.w;
+  el.innerHTML = `<div class="q-label">Запомни${t.again ? " · ещё раз" : ""}</div>
+    <div class="row" style="align-items:flex-start"><div class="q-big" style="flex:1">${esc(w.en)}</div>${speakBtn(w.en)}</div>
+    <div class="q-ru">${esc(w.ru)}</div>
+    ${w.ex ? `<div class="q-ex"><div class="row" style="align-items:flex-start"><div style="flex:1">${esc(w.ex)}${w.exr ? `<div class="ru">${esc(w.exr)}</div>` : ""}</div>${speakBtn(w.ex)}</div></div>` : ""}
+    <div class="field" style="margin-top:12px"><label>💡 Твоя подсказка-ассоциация (необязательно)</label>
+      <input id="dNote" value="${esc((S.notes || {})[w.id] || "")}" placeholder="например: flat — плоская квартира" autocomplete="off"></div>
+    <p class="small dim">Произнеси слово вслух 2–3 раза и представь картинку. Смешная или странная ассоциация запоминается лучше всего.</p>
+    <button class="btn primary big wide" id="dGo">Запомнил →</button>`;
+  speak(w.en);
+  $("#dGo", el).onclick = () => {
+    const v = $("#dNote", el).value.trim(); S.notes = S.notes || {};
+    if (v) S.notes[w.id] = v; else delete S.notes[w.id];
+    save(); next(null);
+  };
+};
+/* одна ступень заучивания */
+T.drill = (t, el) => {
+  const w = t.w, c = ST.ctx, step = t.step, cz = clozeOf(w);
+  const dots = [0, 1, 2].map(i => `<span style="color:${i < step ? "var(--emerald)" : "var(--line2)"}">●</span>`).join(" ");
+  const label = `Заучивание · ${dots} · закреплено ${c.mastered}/${c.total}`;
+  const result = ok => {
+    if (ok) {
+      if (step + 1 >= 3) { c.mastered++; S.drill = S.drill || {}; const d = S.drill[w.id] || { n: 0 }; d.n++; d.last = today(); S.drill[w.id] = d; }
+      else ST.tasks.splice(Math.min(ST.tasks.length, ST.i + 1 + (step === 0 ? 3 : 6)), 0, { type: "drill", w, step: step + 1 });
+    } else {
+      c.miss[w.id] = (c.miss[w.id] || 0) + 1;
+      const at = Math.min(ST.tasks.length, ST.i + 1);
+      const back = [{ type: "drill", w, step: 0 }];
+      if (c.miss[w.id] % 2 === 0) back.unshift({ type: "dIntro", w, again: true });
+      ST.tasks.splice(Math.min(ST.tasks.length, at + 2), 0, ...back);
+    }
+    save(); next(ok);
+  };
+  if (step === 0 || (step === 1 && !(cz && Math.random() < 0.5))) {
+    const toEn = step === 1;
+    const pool = shuffle([...WORDS, ...S.own].filter(x => x.id !== w.id && x.ru !== w.ru && x.en !== w.en && x.kind === w.kind));
+    const opts = shuffle([w, ...pool.slice(0, 3)]);
+    el.innerHTML = `<div class="q-label">${label}</div>
+      <div class="q-mid" style="font-size:24px">${esc(toEn ? w.ru : w.en)}</div>${toEn ? "" : speakBtn(w.en)}
+      <div class="opts">${opts.map(o => `<button class="opt" data-id="${esc(o.id)}">${esc(toEn ? o.en : o.ru)}</button>`).join("")}<button class="opt idk" data-id="">Не помню</button></div><div id="fbx"></div>`;
+    if (!toEn) speak(w.en);
+    $$(".opt", el).forEach(b => b.onclick = () => {
+      const ok = b.dataset.id === w.id;
+      $$(".opt", el).forEach(x => { x.disabled = true; if (x.dataset.id === w.id) x.classList.add("ok"); });
+      if (!ok && b.dataset.id) b.classList.add("bad");
+      beep(ok); if (toEn || !ok) speak(w.en);
+      if (!ok && S.notes && S.notes[w.id]) feedback($("#fbx", el), "mid", "💡 " + esc(S.notes[w.id]));
+      setTimeout(() => result(ok), ok ? 450 : 1600);
+    });
+    return;
+  }
+  const isCz = step === 1;
+  const target = isCz ? cz.ans : w.en;
+  el.innerHTML = `<div class="q-label">${label}</div>
+    ${isCz ? `<div class="q-mid" style="line-height:1.5">${esc(cz.before)}<span style="color:var(--cyan);letter-spacing:2px">${esc(cz.ans[0] + "_".repeat(Math.max(2, cz.ans.length - 1)))}</span>${esc(cz.after)}</div><p class="small muted">${esc(w.exr || "")}</p>`
+           : `<div class="q-mid" style="font-size:24px">${esc(w.ru)}</div><p class="small muted">Напиши по-английски${w.exr ? ` · ${esc(w.exr)}` : ""}</p>`}
+    <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ответ…">
+    <div class="actions"><button class="btn" id="idk">Не помню</button><button class="btn primary" id="chk">Проверить</button></div><div id="fbx"></div>`;
+  const inp = $("#ans", el); setTimeout(() => inp.focus(), 60);
+  let answered = false;
+  const finish = v => {
+    if (answered) return; answered = true;
+    let r = v ? check(v, target) : 0;
+    if (r < 2 && v && isCz && check(v, w.en) === 2) r = 1;
+    const ok = r > 0, note = S.notes && S.notes[w.id];
+    beep(ok); speak(isCz ? w.ex : w.en);
+    feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
+      `<b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — засчитано." : esc(coach("wrong"))}</b><br>${isCz ? `${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}` : `<b style="color:#a5f3fc">${esc(w.en)}</b> — ${esc(w.ru)}`}${!ok && note ? `<br>💡 ${esc(note)}` : ""}`);
+    $(".actions", el).innerHTML = (ok ? "" : `<button class="btn" id="typo">Я знал, опечатка</button>`) + `<button class="btn primary" id="nx">Дальше</button>`;
+    $("#nx", el).onclick = () => result(ok);
+    if ($("#typo", el)) $("#typo", el).onclick = () => result(true);
+    setTimeout(() => $("#nx", el) && $("#nx", el).focus(), 50);
+  };
+  $("#chk", el).onclick = () => { if (inp.value.trim()) finish(inp.value); };
+  $("#idk", el).onclick = () => finish("");
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); answered ? $("#nx", el).click() : $("#chk", el).click(); } };
+};
+/* «Слушать по кругу»: английское — русское — пример, без нажатий */
+function startListenLoop(words) {
+  if (!words.length) return toast("Нет слов для прослушивания");
+  runStage("Слушать по кругу", [{ type: "listenLoop", words }], () => false, { noBar: true });
+}
+T.listenLoop = (t, el) => {
+  const ws = t.words; let i = 0, playing = true, loops = 0, run = 0;
+  el.innerHTML = `<div class="q-label" id="llCount"></div>
+    <div class="card" style="text-align:center;padding:26px 14px">
+      <div class="q-big" id="llEn" style="font-size:34px"></div><div class="q-ru" id="llRu" style="margin-top:6px"></div>
+      <div class="small muted" id="llEx" style="margin-top:12px;line-height:1.5"></div><div class="small" id="llNote" style="margin-top:8px;color:#fcd34d"></div></div>
+    <div class="row" style="justify-content:center;gap:10px"><button class="icon-btn" id="llPrev">⏮</button><button class="play-big" id="llPlay" style="width:72px;height:72px;font-size:28px;margin:0">⏸</button><button class="icon-btn" id="llNext">⏭</button></div>
+    <p class="small dim" style="text-align:center;margin-top:14px">Повторяй вслух за диктором. Русский озвучивается, если в телефоне есть русский голос.</p>`;
+  const show = () => {
+    const w = ws[i];
+    $("#llCount", el).textContent = `Слово ${i + 1} из ${ws.length}${loops ? ` · круг ${loops + 1}` : ""}`;
+    $("#llEn", el).textContent = w.en; $("#llRu", el).textContent = w.ru;
+    $("#llEx", el).textContent = w.ex ? `${w.ex} — ${w.exr || ""}` : "";
+    $("#llNote", el).textContent = S.notes && S.notes[w.id] ? "💡 " + S.notes[w.id] : "";
+  };
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const loop = async () => {
+    const my = ++run;
+    while (playing && ST.on && my === run && $("#llEn", el)) {
+      show(); const w = ws[i];
+      await speak(w.en); if (!playing || my !== run) break; await pause(700);
+      await speakRu(w.ru); if (!playing || my !== run) break; await pause(500);
+      await speak(w.en); if (!playing || my !== run) break; await pause(600);
+      if (w.ex) { await speak(w.ex); if (!playing || my !== run) break; }
+      await pause(1200);
+      i++; if (i >= ws.length) { i = 0; loops++; }
+    }
+  };
+  const setPlay = p => { playing = p; $("#llPlay", el).textContent = p ? "⏸" : "▶"; if (!p && TTS) TTS.cancel(); else loop(); };
+  $("#llPlay", el).onclick = () => setPlay(!playing);
+  $("#llNext", el).onclick = () => { i = (i + 1) % ws.length; if (TTS) TTS.cancel(); show(); if (playing) loop(); };
+  $("#llPrev", el).onclick = () => { i = (i - 1 + ws.length) % ws.length; if (TTS) TTS.cancel(); show(); if (playing) loop(); };
+  show(); loop();
+};
 
 /* правило грамматики */
 T.rule = (t, el) => {
@@ -1543,6 +1730,10 @@ function renderToday() {
     ${steps.map(k => { const i = stepInfo(k), dn = stepDone(k); return `<button class="step ${dn ? "done" : ""}" data-k="${k}">
       <div class="si">${STEP_META[k].ico}</div><div class="sb"><div class="st">${STEP_META[k].name}</div><div class="ss">${esc(i.sub)}</div></div>
       ${dn ? `<span class="sk">✓</span>` : `<span class="dim">›</span>`}</button>`; }).join("")}
+    ${(() => { const wk = weakWords(), ln = learningWords(); const all = [...wk, ...ln]; if (!all.length) return "";
+      return `<div class="card" style="margin-top:4px;border-color:rgba(245,158,11,.45)"><div class="row"><b style="white-space:nowrap">🔥 Трудные слова</b><span class="small muted sp" style="text-align:right">${wk.length} трудных · ${ln.length} в обучении</span></div>
+        <div class="row wrap" style="gap:6px;margin:10px 0">${all.slice(0, 6).map(w => `<span class="chip" style="font-size:13px">${esc(w.en)} — ${esc(w.ru)}</span>`).join("")}</div>
+        <div class="grid2"><button class="btn sm primary" id="drillT">🔥 Заучить</button><button class="btn sm" id="listenT">🎧 Слушать</button></div></div>`; })()}
     <button class="btn wide" id="maraT" style="margin-top:4px">🏁 Марафон слов — быстрый прогон</button>
     <div class="sect-title">Погружение</div>
     <div class="card">
@@ -1556,6 +1747,8 @@ function renderToday() {
   if ($("#extra")) $("#extra").onclick = () => { const keep = S.profile.newPerDay; S.profile.newPerDay = D().nw + 5; startStep("new", false); S.profile.newPerDay = keep; };
   $$(".step", el).forEach(b => b.onclick = () => startStep(b.dataset.k, false));
   $("#maraT").onclick = maraSheet;
+  if ($("#drillT")) $("#drillT").onclick = () => { const l = [...weakWords(), ...learningWords()]; startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N)); };
+  if ($("#listenT")) $("#listenT").onclick = () => startListenLoop([...weakWords(), ...learningWords()].slice(0, 40));
   $$("[data-inp]", el).forEach(b => b.onclick = () => { D().inp = Math.max(0, D().inp + +b.dataset.inp); save(); render(); if (+b.dataset.inp > 0) toast("Засчитано. Так держать"); });
 }
 function roadMini() {
@@ -1583,6 +1776,7 @@ function renderWords() {
     </div>
     <div class="gap8" style="margin-top:12px">
       <button class="btn primary wide" id="rv" ${due ? "" : "disabled"}>🧠 Повторить сейчас${due ? ` (${due})` : ""}</button>
+      <button class="btn wide" id="drill">🔥 Заучивание трудных · ${weakWords().length + learningWords().length}</button>
       <button class="btn wide" id="verify">✅ Проверить выученные · ${verifySets().known.length}</button>
       <button class="btn wide" id="mara">🏁 Марафон слов · ${maraStats(WORDS.concat(S.own)).known} из ${WORDS.length + S.own.length} знаю</button>
       <div class="grid2"><button class="btn" id="nw">✨ +5 новых</button><button class="btn" id="add">＋ Своё слово</button></div>
@@ -1595,6 +1789,7 @@ function renderWords() {
   $("#rv").onclick = () => startStep("review", false);
   $("#mara").onclick = maraSheet;
   $("#verify").onclick = verifySheet;
+  $("#drill").onclick = drillSheet;
   $("#nw").onclick = () => { const keep = P().newPerDay; S.profile && (S.profile.newPerDay = D().nw + 5); startStep("new", false); S.profile && (S.profile.newPerDay = keep); };
   $("#add").onclick = () => addWordSheet();
   $("#imp").onclick = importSheet;
