@@ -136,6 +136,19 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
 .heat{display:grid;grid-template-columns:repeat(12,1fr);grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:3px}
 .heat i{aspect-ratio:1;border-radius:3px;background:var(--panel2)}
 .heat i.l1{background:#3b2a6b}.heat i.l2{background:#5b3fb0}.heat i.l3{background:#8b5cf6}.heat i.l4{background:#22d3ee}
+.heat i.pre{opacity:.35}
+.heat i.fut{background:transparent;border:1px dashed var(--line2)}
+.heat i.td{outline:2px solid #fff;outline-offset:1px}
+.heat-wrap{display:flex;gap:6px}
+.heat-days{display:grid;grid-template-rows:repeat(7,1fr);gap:3px;font-size:9px;color:var(--dim);align-items:center}
+.heat-legend{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--muted)}
+.heat-legend i{width:12px;height:12px;border-radius:3px;display:inline-block;background:var(--panel2)}
+.funnel{display:flex;height:14px;border-radius:999px;overflow:hidden;background:var(--panel2)}
+.funnel i{display:block;height:100%}
+.howto ol{margin:8px 0 0;padding-left:20px;line-height:1.6;font-size:13px;color:var(--muted)}
+.howto b{color:var(--text)}
+details.howto summary{cursor:pointer;font-weight:700;list-style:none}
+details.howto summary::-webkit-details-marker{display:none}
 .road{position:relative;padding-left:22px}
 .road:before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--line2)}
 .rm{position:relative;margin-bottom:12px}
@@ -396,7 +409,7 @@ const saveProfiles = () => { try { localStorage.setItem(PKEY, JSON.stringify(PRO
 const curProfile = () => PROF.list.find(x => x.id === PROF.cur);
 const dataKey = id => OLD_KEY + ":" + (id || PROF.cur);
 function blank() {
-  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {}, trans: {}, quotes: [],
+  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {}, trans: {}, quotes: [], err: {},
            set: { rate: 0.9, voice: "", coach: "hard", sfx: true } };
 }
 function load() {
@@ -431,6 +444,74 @@ function grade(c, q) {
   c.due = t + c.ivl; c.last = t;
 }
 const isKnown = c => c && c.ivl >= 21;
+
+/* ---------- Журнал ошибок ----------
+   Каждая ошибка (повторение, проверка, марафон, заучивание, грамматика)
+   записывается. Исправленной она считается, когда на этот же вопрос ответили
+   верно в ДВА РАЗНЫХ ДНЯ ПОСЛЕ дня ошибки: так проверяется долгая память,
+   а не то, что ещё держится в голове после подсказки. Тренировка в день
+   ошибки помогает запомнить, но засчитывается со следующего дня. */
+const FIX_DAYS = 2;
+function errMark(key, ok, meta) {
+  S.err = S.err || {};
+  let e = S.err[key]; const t = today();
+  if (!ok) {
+    if (!e) e = S.err[key] = Object.assign({ n: 0, first: t }, meta || {});
+    if (e.fixed || e.last !== t) D().em = (D().em || 0) + 1;
+    e.n++; e.last = t; e.ok = 0; e.lastOk = 0; e.fixed = 0;
+  } else if (e && !e.fixed) {
+    if (t > e.last && e.lastOk !== t) {
+      e.ok = (e.ok || 0) + 1; e.lastOk = t;
+      if (e.ok >= FIX_DAYS) { e.fixed = t; D().ef = (D().ef || 0) + 1; }
+    } else e.tr = t; // потренировано сегодня — засчитается со следующего дня
+  }
+}
+const errW = (w, ok) => { if (w) errMark("w|" + w.id, ok, { k: "w", id: w.id }); };
+/* state: "open" — ещё ни разу не вспомнил верно; "fixing" — 1 из 2; "fixed"; без state — все неисправленные */
+function errList(kind, state) {
+  return Object.entries(S.err || {}).filter(([k, e]) => (!kind || e.k === kind)
+    && (state === "fixed" ? !!e.fixed : state === "fixing" ? !e.fixed && e.ok > 0 : state === "open" ? !e.fixed && !e.ok : !e.fixed))
+    .filter(([k, e]) => e.k !== "w" || itemById(e.id));
+}
+const errOf = id => (S.err || {})["w|" + id];
+/* перенос старых данных в журнал: забытые в повторении и ошибки марафона */
+function seedErrors() {
+  if (S.errSeeded) return;
+  S.err = S.err || {};
+  const t = today();
+  for (const id in S.cards) { const c = S.cards[id]; if (c.lapses > 0 && c.ivl < 21 && !S.err["w|" + id]) S.err["w|" + id] = { k: "w", id, n: c.lapses, first: c.last || t, last: c.last || t, ok: 0 }; }
+  for (const id in (S.mara || {})) if (S.mara[id] === 0 && !S.err["w|" + id]) S.err["w|" + id] = { k: "w", id, n: 1, first: t, last: t, ok: 0 };
+  S.errSeeded = true; save();
+}
+
+/* ---------- Ступени слова ---------- */
+const STAGES = [
+  { e: "🆕", n: "Новое", d: "ещё не изучал" },
+  { e: "🌱", n: "Знакомлюсь", d: "первые дни после знакомства" },
+  { e: "🌿", n: "Учу", d: "повторяю каждые 2–6 дней" },
+  { e: "🌳", n: "Закрепляю", d: "интервал 1–3 недели" },
+  { e: "✅", n: "Знаю", d: "помню 3 недели и дольше" },
+  { e: "🏆", n: "Выучено", d: "помню 2 месяца и дольше" }];
+const UNVERIFIED = { e: "❔", n: "Отмечено «знаю»", d: "ты сказал «Уже знаю», но ещё не проверял" };
+function stageOf(c) {
+  if (!c) return 0;
+  if (c.ivl >= 21 && !c.last && !c.vt) return -1;
+  return c.ivl >= 60 ? 5 : c.ivl >= 21 ? 4 : c.ivl >= 7 ? 3 : c.ivl >= 2 ? 2 : 1;
+}
+const stageInfo = st => st < 0 ? UNVERIFIED : STAGES[st];
+
+/* ---------- Повтор пройденной грамматики: 1 → 3 → 7 → 14 → 30 → 60 дней ---------- */
+const RV_STEPS = [1, 3, 7, 14, 30, 60];
+function gramRv(id) {
+  const s = S.gram[id]; if (!s || !s.done) return null;
+  return s.rv || { i: 0, due: (s.last || today()) + 1 };
+}
+function gramDueTopics() {
+  const t = today(), ids = new Set();
+  GRAMMAR.forEach(g => { const rv = gramRv(g.id); if (rv && rv.due <= t) ids.add(g.id); });
+  errList("g").forEach(([k, e]) => { if (e.last < t && e.lastOk !== t) ids.add(e.g); });
+  return GRAMMAR.filter(g => ids.has(g.id));
+}
 function dueIds() {
   const t = today();
   return Object.keys(S.cards).filter(id => S.cards[id].due <= t && itemById(id)).sort((a, b) => S.cards[a].due - S.cards[b].due);
@@ -805,7 +886,7 @@ function markFail(id) { ST.ctx.fails = ST.ctx.fails || {}; ST.ctx.fails[id] = (S
 function reviewGrade(w, q) {
   const c = S.cards[w.id]; if (!c) return;
   ST.ctx.graded = ST.ctx.graded || {};
-  if (!ST.ctx.graded[w.id]) { grade(c, q); ST.ctx.graded[w.id] = true; }
+  if (!ST.ctx.graded[w.id]) { grade(c, q); ST.ctx.graded[w.id] = true; errW(w, q > 0); }
   if (q === 0) ST.tasks.splice(Math.min(ST.tasks.length, ST.i + 4), 0, { type: "recall", w, review: true, again: true });
 }
 
@@ -921,6 +1002,8 @@ T.verify = (t, el) => {
   const mode = t.mode || (t.mode = cz && Math.random() < 0.4 ? "cloze" : Math.random() < 0.5 ? "type" : "pick");
   const done = ok => {
     if (!ok) c.wrong.push(w);
+    errW(w, ok);
+    if (ok && S.cards[w.id]) S.cards[w.id].vt = today(); // слово проверено (на расписание не влияет)
     setTimeout(() => next(ok), ok ? 450 : 0);
   };
   if (mode === "pick") {
@@ -969,7 +1052,7 @@ function verifySets() {
   const t = today();
   return {
     known: ids.filter(id => isKnown(S.cards[id])),
-    marked: ids.filter(id => { const c = S.cards[id]; return isKnown(c) && !c.last; }),
+    marked: ids.filter(id => { const c = S.cards[id]; return isKnown(c) && !c.last && !c.vt; }),
     studied: ids.filter(id => S.cards[id].last && S.cards[id].due > t),
     all: ids
   };
@@ -1017,12 +1100,18 @@ function startVerify(words, title) {
    во фразу → написать), между ступенями слово уходит на 3–6 карточек назад;
    ошибка возвращает его на первую ступень. */
 function weakWords() {
-  const out = [], seen = new Set(), m = S.mara || {};
-  const add = w => { if (w && !seen.has(w.id)) { seen.add(w.id); out.push(w); } };
-  Object.keys(S.cards).filter(id => S.cards[id].lapses > 0 && !isKnown(S.cards[id]))
-    .sort((a, b) => S.cards[b].lapses - S.cards[a].lapses).forEach(id => add(itemById(id)));
-  Object.keys(m).filter(id => m[id] === 0).forEach(id => add(itemById(id)));
+  seedErrors();
+  const out = [], seen = new Set();
+  errList("w").sort((a, b) => (b[1].n - a[1].n) || (b[1].last - a[1].last)).forEach(([k, e]) => {
+    const w = itemById(e.id); if (w && !seen.has(w.id)) { seen.add(w.id); out.push(w); }
+  });
   return out;
+}
+/* слова для шага «Работа над ошибками»: неисправленные, которые ещё не подтверждены и не тренированы сегодня */
+function fixableWords() {
+  const t = today();
+  return errList("w").filter(([k, e]) => e.lastOk !== t && e.tr !== t)
+    .sort((a, b) => (b[1].n - a[1].n) || (b[1].last - a[1].last)).map(([k, e]) => itemById(e.id)).filter(Boolean);
 }
 function learningWords() {
   const weak = new Set(weakWords().map(w => w.id));
@@ -1047,14 +1136,19 @@ function drillSheet() {
   $$("[data-dk]").forEach(b => b.onclick = () => { const l = sets[b.dataset.dk]; if (!l.length) return; closeSheet(); startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N)); });
   $("#dListen").onclick = () => { closeSheet(); startListenLoop([...weak, ...learn].slice(0, 40)); };
 }
-function startDrill(batch, rest) {
+function startDrill(batch, rest, opt = {}) {
   const ctx = { mastered: 0, total: batch.length, miss: {}, rest };
   const tasks = batch.map(w => ({ type: "dIntro", w }));
   shuffle(batch).forEach(w => tasks.push({ type: "drill", w, step: 0 }));
-  runStage("Заучивание", tasks, r => {
+  runStage(opt.step ? "Работа над ошибками" : "Заучивание", tasks, r => {
+    if (opt.step) { D().steps[opt.step] = true; save(); }
     const hard = batch.filter(w => (ctx.miss[w.id] || 0) >= 2);
+    const fixedNow = batch.filter(w => { const e = errOf(w.id); return e && e.fixed === today(); });
+    const trained = batch.filter(w => { const e = errOf(w.id); return e && !e.fixed && e.tr === today(); });
     return {
       html: `<div class="grid2" style="margin-top:12px"><div class="stat"><b>${ctx.mastered}/${ctx.total}</b><span>закреплено</span></div><div class="stat"><b>${Object.values(ctx.miss).reduce((a, b) => a + b, 0)}</b><span>ошибок по пути</span></div></div>
+        ${fixedNow.length ? `<div class="fb ok" style="margin-top:12px">🟢 Исправлено окончательно: ${fixedNow.map(w => esc(w.en)).join(", ")}</div>` : ""}
+        ${trained.length ? `<div class="small muted" style="margin-top:10px;line-height:1.5">🔧 ${trained.length} ${plural(trained.length, "ошибка сделана", "ошибки сделаны", "ошибок сделано")} сегодня — исправление засчитается, когда вспомнишь эти слова верно в следующие дни.</div>` : ""}
         ${hard.length ? `<div class="card" style="margin-top:12px"><div class="small muted" style="margin-bottom:6px">Самые упрямые — придумай к ним подсказку (💡 в слове):</div>${hard.map(w => `<div class="row" style="padding:4px 0;border-bottom:1px solid var(--line)"><b style="flex:1">${esc(w.en)}</b><span class="muted small">${esc(w.ru)}</span></div>`).join("")}</div>` : ""}
         ${rest.length ? `<button class="btn primary wide" id="dMore" style="margin-top:12px">🔥 Следующие ${Math.min(DRILL_N, rest.length)} слов</button>` : ""}
         <button class="btn wide" id="dAgain" style="margin-top:8px">🔁 Эту пачку ещё раз</button>`,
@@ -1063,7 +1157,7 @@ function startDrill(batch, rest) {
         $("#dAgain").onclick = () => startDrill(batch, rest);
       }
     };
-  }, { ctx });
+  }, { ctx, chain: !!opt.chain, step: opt.step || null });
 }
 /* знакомство со словом + своя подсказка */
 T.dIntro = (t, el) => {
@@ -1090,10 +1184,10 @@ T.drill = (t, el) => {
   const label = `Заучивание · ${dots} · закреплено ${c.mastered}/${c.total}`;
   const result = ok => {
     if (ok) {
-      if (step + 1 >= 3) { c.mastered++; S.drill = S.drill || {}; const d = S.drill[w.id] || { n: 0 }; d.n++; d.last = today(); S.drill[w.id] = d; }
+      if (step + 1 >= 3) { c.mastered++; S.drill = S.drill || {}; const d = S.drill[w.id] || { n: 0 }; d.n++; d.last = today(); S.drill[w.id] = d; errW(w, true); }
       else ST.tasks.splice(Math.min(ST.tasks.length, ST.i + 1 + (step === 0 ? 3 : 6)), 0, { type: "drill", w, step: step + 1 });
     } else {
-      c.miss[w.id] = (c.miss[w.id] || 0) + 1;
+      c.miss[w.id] = (c.miss[w.id] || 0) + 1; errW(w, false);
       const at = Math.min(ST.tasks.length, ST.i + 1);
       const back = [{ type: "drill", w, step: 0 }];
       if (c.miss[w.id] % 2 === 0) back.unshift({ type: "dIntro", w, again: true });
@@ -1234,6 +1328,41 @@ T.trans = (t, el) => {
   };
 };
 
+/* ---------- журнал ошибок (экран) ---------- */
+function errSheet() {
+  seedErrors();
+  const t = today();
+  const all = Object.entries(S.err || {}).filter(([k, e]) => e.k !== "w" || itemById(e.id));
+  const live = all.filter(([k, e]) => !e.fixed).sort((a, b) => (b[1].last - a[1].last) || (b[1].n - a[1].n));
+  const fixed = all.filter(([k, e]) => e.fixed).sort((a, b) => b[1].fixed - a[1].fixed);
+  const dots = e => [0, 1].map(i => `<span style="color:${i < (e.ok || 0) ? "var(--emerald)" : "var(--line2)"}">●</span>`).join("");
+  const status = e => e.fixed ? `🟢 исправлено ${fmtDate(e.fixed)}` : e.ok ? `🟡 вспомнил верно ${fmtDate(e.lastOk)} · ещё 1 день` : e.tr === t ? "🔴 потренировано сегодня — проверка с завтра" : `🔴 ошибка ${e.last === t ? "сегодня" : fmtDate(e.last)}`;
+  const row = ([k, e]) => {
+    if (e.k === "w") { const w = itemById(e.id);
+      return `<div class="li" style="cursor:default"><div class="lb"><div class="lt">${esc(w.en)} <span class="muted small">— ${esc(w.ru)}</span></div><div class="ls" style="font-size:12px">${dots(e)} ${status(e)} · ошибок ${e.n}</div></div></div>`; }
+    const g = GRAMMAR.find(x => x.id === e.g);
+    const q = e.tp === "mc" ? esc(e.q).replace("___", `<b style="color:#a5f3fc">${esc(e.a)}</b>`) : `${esc(e.q)}<br><b style="color:#a5f3fc">${esc(e.a)}</b>`;
+    return `<div class="li" style="cursor:default"><div class="lb"><div class="lt" style="font-size:14px;font-weight:550">${q}</div><div class="ls" style="font-size:12px">🧩 ${esc(g ? g.title : "")} · ${dots(e)} ${status(e)} · ошибок ${e.n}</div></div></div>`;
+  };
+  const wLive = live.filter(([k, e]) => e.k === "w"), gLive = live.filter(([k, e]) => e.k === "g");
+  const gTopics = GRAMMAR.filter(g => gLive.some(([k, e]) => e.g === g.id));
+  openSheet(`<div class="sheet-title">🔧 Журнал ошибок</div>
+    <p class="small muted" style="margin-top:-6px;line-height:1.55">Сюда попадает каждая ошибка: повторение, проверка, марафон, заучивание, грамматика. Ошибка <b style="color:var(--text)">исправлена</b>, когда ты ответишь верно <b style="color:var(--text)">в два разных дня после неё</b> (●● — оба дня). Заучивание в день ошибки помогает, но засчитывается со следующего дня.</p>
+    <div class="grid2" style="grid-template-columns:repeat(3,1fr)">
+      <div class="stat"><b style="color:#fca5a5">${errList(null, "open").length}</b><span>🔴 открыто</span></div>
+      <div class="stat"><b style="color:#fcd34d">${errList(null, "fixing").length}</b><span>🟡 исправляется</span></div>
+      <div class="stat"><b style="color:#6ee7b7">${fixed.length}</b><span>🟢 исправлено</span></div></div>
+    <div class="gap8" style="margin-top:12px">
+      ${wLive.length ? `<button class="btn primary wide" id="eW">🔥 Исправлять слова (${wLive.length})</button>` : ""}
+      ${gTopics.length ? `<button class="btn wide" id="eG">↩️ Исправлять грамматику (${gLive.length})</button>` : ""}</div>
+    ${wLive.length ? `<div class="sect-title">Слова · ${wLive.length}</div>${wLive.slice(0, 60).map(row).join("")}` : ""}
+    ${gLive.length ? `<div class="sect-title">Грамматика · ${gLive.length}</div>${gLive.slice(0, 40).map(row).join("")}` : ""}
+    ${!live.length ? `<div class="empty">Открытых ошибок нет 💪</div>` : ""}
+    ${fixed.length ? `<details style="margin-top:12px"><summary class="sect-title" style="cursor:pointer">🟢 Исправленные · ${fixed.length}</summary>${fixed.slice(0, 60).map(row).join("")}</details>` : ""}`);
+  if ($("#eW")) $("#eW").onclick = () => { closeSheet(); const l = weakWords(); startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N)); };
+  if ($("#eG")) $("#eG").onclick = () => { closeSheet(); startGramReview(gTopics.slice(0, 3), false, false); };
+}
+
 /* ---------- книги и цитаты ---------- */
 function chapterTx(b, i) {
   const ch = b.chapters[i];
@@ -1302,6 +1431,7 @@ T.mc = (t, el) => {
     if (t.silent) { b.classList.add("pick"); if (t.onAnswer) t.onAnswer(ok); setTimeout(() => next(null), 250); return; }
     if (!ok) b.classList.add("bad");
     beep(ok);
+    if (t.g) errMark("g|" + t.g.id + "|" + q, ok, { k: "g", g: t.g.id, q, a: opts[0], tp: "mc" });
     const full = q.replace("___", opts[0]);
     if (!ok) feedback($("#fbx"), "bad", `<b>Правильно:</b> ${esc(full)}`);
     if (t.onAnswer) t.onAnswer(ok);
@@ -1342,6 +1472,8 @@ T.build = (t, el) => {
   const done = ans => {
     const r = check(ans, en);
     beep(r > 0);
+    if (t.g) errMark("g|" + t.g.id + "|" + ru, r > 0, { k: "g", g: t.g.id, q: ru, a: en, tp: "tr" });
+    if (t.onAnswer) t.onAnswer(r > 0);
     feedback($("#fbx"), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
       `<div class="row"><div style="flex:1"><b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — мелкая ошибка." : esc(coach("wrong"))}</b><br>${esc(en)}</div>${speakBtn(en)}</div>`);
     speak(en);
@@ -1511,25 +1643,32 @@ T.speak = (t, el) => {
    ============================================================ */
 const STEP_META = {
   review: { ico: "🧠", name: "Повторение", why: "интервальные повторения" },
+  fix:    { ico: "🔧", name: "Работа над ошибками", why: "заучивание слов из журнала ошибок" },
+  gramrv: { ico: "↩️", name: "Повтор грамматики", why: "возврат к пройденным темам" },
   new:    { ico: "✨", name: "Новые слова", why: "частотные слова и фразы" },
   grammar:{ ico: "🧩", name: "Грамматика", why: "одна тема за раз" },
   listen: { ico: "✍️", name: "Диктант", why: "понимание на слух" },
   shadow: { ico: "🗣", name: "Шэдоуинг", why: "произношение и беглость" },
   speak:  { ico: "💬", name: "Говорение", why: "свободная речь" }
 };
-const STEPS = Object.keys(STEP_META);
+const STEPS = ["review", "new", "grammar", "listen", "shadow", "speak"];
 const P = () => S.profile || { level: "A0", minutes: 45, plan: 6, newPerDay: 12, input: 30, start: today() };
 function stepsForToday() {
-  const m = P().minutes;
-  if (m <= 30) return ["review", "new", "grammar", "listen"];
-  if (m <= 45) return ["review", "new", "grammar", "listen", "shadow"];
-  return STEPS;
+  const m = P().minutes, d = D();
+  let base = m <= 30 ? ["review", "new", "grammar", "listen"] : m <= 45 ? ["review", "new", "grammar", "listen", "shadow"] : STEPS.slice();
+  // по шагам: сначала повторить старое и исправить ошибки, потом новое
+  const extra = [];
+  if (d.steps.fix || fixableWords().length) extra.push("fix");
+  if (d.steps.gramrv || gramDueTopics().length) extra.push("gramrv");
+  return [base[0], ...extra, ...base.slice(1)];
 }
 function stepInfo(k) {
   const d = D();
   if (k === "review") { const n = dueIds().length; return { sub: n ? `${n} ${plural(n, "карточка", "карточки", "карточек")} к повторению` : "на сегодня всё повторено", auto: !n }; }
   if (k === "new") { const left = Math.max(0, P().newPerDay - d.nw); return { sub: left ? `${left} ${plural(left, "новое слово", "новых слова", "новых слов")}` : "дневная норма взята", auto: !left || !newQueue().length }; }
   if (k === "grammar") { const g = currentTopic(); return { sub: g ? g.title : "все темы пройдены — повторение", auto: false }; }
+  if (k === "fix") { const n = fixableWords().length; return { sub: n ? `${Math.min(n, DRILL_N)} ${plural(Math.min(n, DRILL_N), "слово", "слова", "слов")} из журнала ошибок${n > DRILL_N ? ` (всего ${n})` : ""}` : "ошибки на сегодня проработаны", auto: !n && !d.steps.fix }; }
+  if (k === "gramrv") { const g = gramDueTopics(); return { sub: g.length ? g.slice(0, 3).map(x => x.title.split(" — ")[0].split(":")[0]).join(", ") : "пройденные темы в порядке", auto: !g.length && !d.steps.gramrv }; }
   if (k === "listen") return { sub: "5 фраз на слух" };
   if (k === "shadow") return { sub: "3 фразы вслух за диктором" };
   if (k === "speak") { const p = speakPrompt(); return { sub: p[0] }; }
@@ -1586,6 +1725,14 @@ function startStep(k, chain) {
       shuffle(b).forEach(w => tasks.push({ type: "type", w }));
     }
     runStage("Новые слова", tasks, () => { if (D().nw >= P().newPerDay || !newQueue().length) done(); }, { chain, step: k });
+  } else if (k === "fix") {
+    const l = fixableWords();
+    if (!l.length) { done(); toast("Ошибки на сегодня проработаны"); return chain ? (nextUndone() ? startStep(nextUndone(), true) : closeStage()) : render(); }
+    startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N), { chain, step: "fix" });
+  } else if (k === "gramrv") {
+    const g = gramDueTopics();
+    if (!g.length) { done(); toast("Повторять из грамматики нечего"); return chain ? (nextUndone() ? startStep(nextUndone(), true) : closeStage()) : render(); }
+    startGramReview(g.slice(0, 3), chain, true);
   } else if (k === "grammar") {
     const g = currentTopic() || rnd(GRAMMAR);
     startGrammar(g, chain, true);
@@ -1614,11 +1761,44 @@ function startGrammar(g, chain, asStep) {
     const pct = Math.round(r.ok / Math.max(1, r.ok + r.bad) * 100);
     const s = S.gram[g.id] = S.gram[g.id] || { runs: 0, best: 0 };
     s.runs++; s.best = Math.max(s.best, pct); s.last = today();
-    if (pct >= 80) s.done = true;
+    if (pct >= 80) { s.done = true; if (!s.rv) s.rv = { i: 0, due: today() + 1 }; }
     if (asStep) D().steps.grammar = true;
     save();
     return { html: `<div class="card" style="margin-top:12px"><b>${esc(g.title)}</b><div class="small muted" style="margin-top:4px">${s.done ? "✅ Тема освоена. Завтра — следующая." : "Нужно 80%, чтобы тема засчиталась. Завтра повторим её ещё раз — так и должно быть."}</div></div>` };
   }, { chain, step: asStep ? "grammar" : null });
+}
+
+/* Повтор пройденных тем: сначала вопросы, где ошибался, потом новые вопросы темы.
+   80% и выше — следующий повтор позже (1 → 3 → 7 → 14 → 30 → 60 дней), меньше — завтра снова. */
+function startGramReview(topics, chain, asStep) {
+  const per = {}, tasks = [];
+  for (const g of topics) {
+    per[g.id] = { ok: 0, n: 0 };
+    const onAnswer = ok => { per[g.id].n++; if (ok) per[g.id].ok++; };
+    const errs = errList("g").filter(([k, e]) => e.g === g.id).map(([k, e]) => e).slice(0, 3);
+    const used = new Set();
+    for (const e of errs) {
+      if (e.tp === "mc") { const item = g.mc.find(x => x[0] === e.q); if (item) { tasks.push({ type: "mc", item, g, label: "🔧 Была ошибка", onAnswer }); used.add(e.q); } }
+      else { const item = g.tr.find(x => x[0] === e.q); if (item) { tasks.push({ type: "build", item, g, typed: lvIdx(g.lvl) >= 3, onAnswer }); used.add(e.q); } }
+    }
+    shuffle(g.mc.filter(x => !used.has(x[0]))).slice(0, Math.max(2, 4 - errs.length)).forEach(item => tasks.push({ type: "mc", item, g, label: "↩️ Повтор темы", onAnswer }));
+  }
+  runStage("Повтор грамматики", shuffle(tasks), r => {
+    const t = today(), rows = [];
+    for (const g of topics) {
+      const s = S.gram[g.id] = S.gram[g.id] || { runs: 0, best: 0 }, x = per[g.id];
+      const pct = x.n ? Math.round(x.ok / x.n * 100) : 0;
+      if (s.done) {
+        const rv = s.rv || { i: 0 };
+        rv.i = pct >= 80 ? Math.min(RV_STEPS.length - 1, rv.i + 1) : 0;
+        rv.due = t + RV_STEPS[rv.i]; rv.last = t; s.rv = rv;
+      }
+      rows.push(`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>${pct >= 80 ? "✅" : "↩️"}</span><div style="flex:1"><b>${esc(g.title)}</b><div class="small muted">${pct}% · ${s.done ? (pct >= 80 ? `следующий повтор ${fmtDate(s.rv.due)}` : "повторим завтра") : "тема ещё не освоена — её очередь придёт в шаге «Грамматика»"}</div></div></div>`);
+    }
+    if (asStep) D().steps.gramrv = true;
+    save();
+    return { html: `<div class="card" style="margin-top:12px">${rows.join("")}</div>` };
+  }, { chain, step: asStep ? "gramrv" : null });
 }
 
 /* ============================================================
@@ -1772,6 +1952,7 @@ function totals() {
   return { sec, inp, hours: sec / 3600 + inp / 60 };
 }
 function render() {
+  seedErrors();
   const p = S.profile;
   $("#hSub").textContent = p ? `${p.level} → цель ${project(p.level, p).end.l} · день ${today() - p.start + 1} из ${p.plan === 6 ? 182 : 365}` : "английский за полгода";
   const me = curProfile();
@@ -1830,7 +2011,8 @@ function renderToday() {
     ${(() => { const wk = weakWords(), ln = learningWords(); const all = [...wk, ...ln]; if (!all.length) return "";
       return `<div class="card" style="margin-top:4px;border-color:rgba(245,158,11,.45)"><div class="row"><b style="white-space:nowrap">🔥 Трудные слова</b><span class="small muted sp" style="text-align:right">${wk.length} трудных · ${ln.length} в обучении</span></div>
         <div class="row wrap" style="gap:6px;margin:10px 0">${all.slice(0, 6).map(w => `<span class="chip" style="font-size:13px">${esc(w.en)} — ${esc(w.ru)}</span>`).join("")}</div>
-        <div class="grid2"><button class="btn sm primary" id="drillT">🔥 Заучить</button><button class="btn sm" id="listenT">🎧 Слушать</button></div></div>`; })()}
+        <div class="grid2"><button class="btn sm primary" id="drillT">🔥 Заучить</button><button class="btn sm" id="listenT">🎧 Слушать</button></div>
+        <button class="btn sm ghost wide" id="errT" style="margin-top:8px">🔧 Журнал ошибок: 🔴 ${errList(null, "open").length} · 🟡 ${errList(null, "fixing").length} · 🟢 ${errList(null, "fixed").length}</button></div>`; })()}
     <button class="btn wide" id="maraT" style="margin-top:4px">🏁 Марафон слов — быстрый прогон</button>
     <div class="sect-title">Погружение</div>
     <div class="card">
@@ -1845,6 +2027,7 @@ function renderToday() {
   $$(".step", el).forEach(b => b.onclick = () => startStep(b.dataset.k, false));
   $("#maraT").onclick = maraSheet;
   if ($("#drillT")) $("#drillT").onclick = () => { const l = [...weakWords(), ...learningWords()]; startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N)); };
+  if ($("#errT")) $("#errT").onclick = errSheet;
   if ($("#listenT")) $("#listenT").onclick = () => startListenLoop([...weakWords(), ...learningWords()].slice(0, 40));
   $$("[data-inp]", el).forEach(b => b.onclick = () => { D().inp = Math.max(0, D().inp + +b.dataset.inp); save(); render(); if (+b.dataset.inp > 0) toast("Засчитано. Так держать"); });
 }
@@ -1852,10 +2035,11 @@ function roadMini() {
   const p = S.profile, t = totals(), base = LEVELS[p.startLevel || p.level].hours;
   const h = Math.max(LEVELS[p.level].hours, base + t.hours), cur = levelByHours(h), nxt = LV[Math.min(5, lvIdx(cur) + 1)];
   const a = LEVELS[cur].hours, b = LEVELS[nxt].hours, pr = b > a ? clamp((h - a) / (b - a), 0, 1) : 1;
-  const known = Object.values(S.cards).filter(isKnown).length, learning = Object.keys(S.cards).length;
+  // «знаю» — только проверенные слова с интервалом 3+ недели; отмеченные «Уже знаю» без проверки — отдельно
+  const cs = Object.values(S.cards), known = cs.filter(c => stageOf(c) >= 4).length, unv = cs.filter(c => stageOf(c) < 0).length, learning = cs.length;
   return `<div class="card">
     <div class="row"><span class="lvl ${cur}">${cur}</span><div class="progress" style="flex:1"><i style="width:${Math.round(pr * 100)}%"></i></div><span class="lvl ${nxt}">${nxt}</span></div>
-    <div class="small muted" style="margin-top:8px">${Math.round(h)} из ${b} ч до ${nxt} · слов в работе: ${learning}, выучено надёжно: ${known}</div>
+    <div class="small muted" style="margin-top:8px">${Math.round(h)} из ${b} ч до ${nxt} · слов в работе: ${learning}, знаешь (помнишь 3+ недели): ${known}${unv ? ` · ❔ не проверено: ${unv}` : ""}</div>
     <button class="btn sm wide" style="margin-top:10px" onclick="go('prog')">Дорожная карта и статистика</button></div>`;
 }
 
@@ -1863,16 +2047,18 @@ let WF = { q: "", f: "all" };
 function renderWords() {
   const el = $("#v-words");
   const ids = Object.keys(S.cards), due = dueIds().length, known = ids.filter(id => isKnown(S.cards[id])).length;
+  const unv = ids.filter(id => stageOf(S.cards[id]) < 0).length;
   const nq = newQueue().length;
   el.innerHTML = `
     <div class="grid2">
       <div class="stat"><b>${due}</b><span>к повторению</span></div>
       <div class="stat"><b>${ids.length - known}</b><span>учу сейчас</span></div>
-      <div class="stat"><b>${known}</b><span>выучено (интервал 3+ нед)</span></div>
+      <div class="stat"><b>${known - unv}</b><span>✅ знаю (3+ недели)${unv ? ` · ❔ ещё ${unv} не проверено` : ""}</span></div>
       <div class="stat"><b>${nq}</b><span>новых в очереди</span></div>
     </div>
     <div class="gap8" style="margin-top:12px">
       <button class="btn primary wide" id="rv" ${due ? "" : "disabled"}>🧠 Повторить сейчас${due ? ` (${due})` : ""}</button>
+      <button class="btn wide" id="errJ">🔧 Журнал ошибок · ${errList("w").length + errList("g").length} в работе</button>
       <button class="btn wide" id="drill">🔥 Заучивание трудных · ${weakWords().length + learningWords().length}</button>
       <button class="btn wide" id="verify">✅ Проверить выученные · ${verifySets().known.length}</button>
       <button class="btn wide" id="mara">🏁 Марафон слов · ${maraStats(WORDS.concat(S.own)).known} из ${WORDS.length + S.own.length} знаю</button>
@@ -1881,12 +2067,13 @@ function renderWords() {
     </div>
     <div class="sect-title">Словарь</div>
     <input class="search" id="q" placeholder="Поиск по-английски или по-русски" value="${esc(WF.q)}">
-    <div class="seg" id="wf" style="margin-bottom:10px">${[["all", "Все"], ["learn", "Учу"], ["known", "Выучены"], ["new", "Новые"], ["own", "Мои"]].map(([k, n]) => `<button data-f="${k}" class="${WF.f === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    <div class="seg" id="wf" style="margin-bottom:10px">${[["all", "Все"], ["learn", "Учу"], ["known", "Знаю"], ["err", "🔧"], ["new", "Новые"], ["own", "Мои"]].map(([k, n]) => `<button data-f="${k}" class="${WF.f === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <div id="wl"></div>`;
   $("#rv").onclick = () => startStep("review", false);
   $("#mara").onclick = maraSheet;
   $("#verify").onclick = verifySheet;
   $("#drill").onclick = drillSheet;
+  $("#errJ").onclick = errSheet;
   $("#nw").onclick = () => { const keep = P().newPerDay; S.profile && (S.profile.newPerDay = D().nw + 5); startStep("new", false); S.profile && (S.profile.newPerDay = keep); };
   $("#add").onclick = () => addWordSheet();
   $("#imp").onclick = importSheet;
@@ -1904,13 +2091,15 @@ function drawWordList() {
     if (WF.f === "known") return isKnown(c);
     if (WF.f === "new") return !c;
     if (WF.f === "own") return w.kind === "own";
+    if (WF.f === "err") { const e = errOf(w.id); return e && !e.fixed; }
     return true;
   });
   const total = list.length; list = list.slice(0, 150);
   $("#wl").innerHTML = list.length ? list.map(w => {
-    const c = S.cards[w.id];
-    const chip = !c ? `<span class="chip">${w.lvl || "моё"}</span>` : isKnown(c) ? `<span class="chip ok">выучено</span>` : c.due <= t ? `<span class="chip due">повторить</span>` : `<span class="chip learn">через ${c.due - t} дн</span>`;
-    return `<button class="li" data-id="${esc(w.id)}"><div class="lb"><div class="lt">${esc(w.en)}</div><div class="ls">${esc(w.ru)}</div></div>${chip}</button>`;
+    const c = S.cards[w.id], st = stageOf(c), si = stageInfo(st), e = errOf(w.id);
+    const when = !c ? (w.lvl || "моё") : c.due <= t ? "повторить" : `через ${c.due - t} дн`;
+    const chip = `<span class="chip ${!c ? "" : st >= 4 ? "ok" : c.due <= t ? "due" : "learn"}">${si.e} ${when}</span>`;
+    return `<button class="li" data-id="${esc(w.id)}"><div class="lb"><div class="lt">${esc(w.en)}${e && !e.fixed ? ` <span title="есть ошибка">🔧</span>` : ""}</div><div class="ls">${esc(w.ru)}</div></div>${chip}</button>`;
   }).join("") + (total > 150 ? `<div class="empty">Показано 150 из ${total}. Уточни поиск.</div>` : "") : `<div class="empty">Ничего не найдено</div>`;
   $$("#wl .li").forEach(b => b.onclick = () => wordSheet(itemById(b.dataset.id)));
 }
@@ -1919,7 +2108,12 @@ function wordSheet(w) {
   openSheet(`
     <div class="row" style="align-items:flex-start"><div style="flex:1"><div class="q-big" style="font-size:26px">${esc(w.en)}</div><div class="q-ru">${esc(w.ru)}</div></div>${speakBtn(w.en)}</div>
     ${exHtml(w)}
-    <div class="small muted" style="margin-top:12px">${esc(KIND_NAME[w.kind] || "")}${w.lvl ? " · " + w.lvl : ""} · ${!c ? "ещё не изучалось" : `следующее повторение: ${c.due <= t ? "сегодня" : fmtDate(c.due)} · интервал ${c.ivl} дн · ошибок ${c.lapses}`}</div>
+    ${(() => { const st = stageOf(c), si = stageInfo(st), e = errOf(w.id);
+      return `<div class="card" style="margin-top:12px"><div class="row"><b>${si.e} ${si.n}</b><span class="small dim">${st >= 0 ? `ступень ${st} из 5` : ""}</span></div>
+        <div class="small muted" style="margin-top:4px">${si.d}</div>
+        <div style="margin-top:8px;letter-spacing:2px">${[1, 2, 3, 4, 5].map(i => `<span style="color:${st >= i ? "var(--emerald)" : "var(--line2)"}">●</span>`).join("")}</div>
+        ${e ? `<div class="small" style="margin-top:8px">${e.fixed ? `🟢 Ошибка исправлена ${fmtDate(e.fixed)}` : e.ok ? `🟡 Ошибка исправляется: вспомнил верно ${fmtDate(e.lastOk)}, нужен ещё 1 день` : `🔴 Ошибка ${fmtDate(e.last)} — ещё не исправлена`} · всего ошибок ${e.n}</div>` : ""}</div>`; })()}
+    <div class="small muted" style="margin-top:12px">${esc(KIND_NAME[w.kind] || "")}${w.lvl ? " · " + w.lvl : ""} · ${!c ? "ещё не изучалось" : `следующее повторение: ${c.due <= t ? "сегодня" : fmtDate(c.due)} · интервал ${c.ivl} дн`}</div>
     <div class="gap8" style="margin-top:14px">
       ${!c ? `<button class="btn primary wide" id="wLearn">Учить — добавить в повторение</button>` : `<button class="btn wide" id="wReset">Сбросить — учить заново</button>`}
       ${!c || !isKnown(c) ? `<button class="btn wide" id="wKnown">Я это знаю</button>` : ""}
@@ -1968,15 +2162,20 @@ function importSheet() {
 
 function renderGram() {
   const el = $("#v-gram"), cur = currentTopic();
-  let html = `<div class="card"><div class="small muted">Одна тема в день: правило на пальцах → выбор формы → сборка и перевод фраз. Тема засчитывается при 80% верных. Старые темы подмешиваются в тренировки, чтобы не забывались.</div></div>`;
+  const dueG = gramDueTopics(), gErr = errList("g");
+  let html = `<div class="card"><div class="small muted" style="line-height:1.55">Одна тема в день: правило на пальцах → выбор формы → сборка и перевод фраз. Тема засчитывается при 80% верных и потом <b style="color:var(--text)">возвращается на повтор</b> через 1 → 3 → 7 → 14 → 30 → 60 дней — вместе с вопросами, где ты ошибался.</div>
+    ${dueG.length ? `<button class="btn primary wide" id="gRv" style="margin-top:10px">↩️ Повторить пройденное · ${dueG.length} ${plural(dueG.length, "тема", "темы", "тем")}</button>` : ""}
+    ${gErr.length ? `<button class="btn wide sm" id="gErr" style="margin-top:8px">🔧 Ошибки в грамматике · ${gErr.length}</button>` : ""}</div>`;
   for (const L of ["A1", "A2", "B1", "B2"]) {
     const list = GRAMMAR.filter(g => g.lvl === L), dn = list.filter(g => S.gram[g.id] && S.gram[g.id].done).length;
     html += `<div class="sect-title">${L} · ${dn}/${list.length}</div>`;
     html += list.map(g => { const s = S.gram[g.id];
       return `<button class="li" data-g="${g.id}"><span style="font-size:18px">${s && s.done ? "✅" : cur && cur.id === g.id ? "👉" : s ? "🟡" : "⚪️"}</span>
-        <div class="lb"><div class="lt">${esc(g.title)}</div>${s ? `<div class="ls">лучший результат ${s.best}% · подходов ${s.runs}</div>` : ""}</div><span class="dim">›</span></button>`; }).join("");
+        <div class="lb"><div class="lt">${esc(g.title)}</div>${s ? `<div class="ls">лучший ${s.best}% · подходов ${s.runs}${(() => { const rv = gramRv(g.id); if (!rv) return ""; const d = rv.due - today(); return d <= 0 ? " · ↩️ повтор сегодня" : ` · ↩️ повтор через ${d} дн`; })()}${(() => { const n = gErr.filter(([k, e]) => e.g === g.id).length; return n ? ` · 🔧 ${n}` : ""; })()}</div>` : ""}</div><span class="dim">›</span></button>`; }).join("");
   }
   el.innerHTML = html;
+  if ($("#gRv")) $("#gRv").onclick = () => startGramReview(dueG.slice(0, 3), false, false);
+  if ($("#gErr")) $("#gErr").onclick = errSheet;
   $$("[data-g]", el).forEach(b => b.onclick = () => {
     const g = GRAMMAR.find(x => x.id === b.dataset.g);
     openSheet(`<div class="row"><span class="lvl ${g.lvl}">${g.lvl}</span><div class="sheet-title" style="margin:0">${esc(g.title)}</div></div>
@@ -2155,41 +2354,92 @@ T.reader = (t, el) => {
 
 function renderProg() {
   const el = $("#v-prog"), p = S.profile, t = totals();
-  const ids = Object.keys(S.cards), known = ids.filter(id => isKnown(S.cards[id])).length;
+  const ids = Object.keys(S.cards).filter(id => itemById(id));
   const gDone = GRAMMAR.filter(g => S.gram[g.id] && S.gram[g.id].done).length;
-  // тепловая карта 12 недель
-  const td = today(), dow = (new Date().getDay() + 6) % 7, start = td - dow - 7 * 11;
+  const td = today(), dow = (new Date().getDay() + 6) % 7, start = td - dow - 7 * 11, pStart = p ? p.start : td;
+  // календарь занятий: 12 недель, колонка — неделя, строка — день недели
+  const lv = m => m >= 60 ? "l4" : m >= 30 ? "l3" : m >= 10 ? "l2" : m > 0 ? "l1" : "";
   let heat = "";
   for (let n = start; n < start + 84; n++) {
     const x = peekDay(n), m = x ? (x.sec / 60 + (x.inp || 0)) : 0;
-    const l = n > td ? "" : m >= 60 ? "l4" : m >= 30 ? "l3" : m >= 10 ? "l2" : m > 0 ? "l1" : "";
-    heat += `<i class="${l}" title="${dayKey(n)}"></i>`;
+    const cls = n > td ? "fut" : [lv(m), n < pStart ? "pre" : "", n === td ? "td" : ""].join(" ");
+    heat += `<i class="${cls}" data-day="${n}"></i>`;
   }
-  // темп за 14 дней
-  let h14 = 0; for (let n = td - 13; n <= td; n++) { const x = peekDay(n); if (x) h14 += x.sec / 3600 + (x.inp || 0) / 60; }
-  const perDay = h14 / 14;
-  let html = "";
+  // средний темп — только по дням с начала занятий (максимум 14)
+  const span = clamp(td - pStart + 1, 1, 14);
+  let hSpan = 0; for (let n = td - span + 1; n <= td; n++) { const x = peekDay(n); if (x) hSpan += x.sec / 3600 + (x.inp || 0) / 60; }
+  const perDay = hSpan / span;
+  // ступени слов
+  const stCount = [0, 0, 0, 0, 0, 0], unv = [];
+  ids.forEach(id => { const st = stageOf(S.cards[id]); if (st < 0) unv.push(id); else stCount[st]++; });
+  const solid = stCount[4] + stCount[5];
+  const stColors = ["", "#3b2a6b", "#5b3fb0", "#8b5cf6", "#10b981", "#22d3ee"];
+  const totalW = ids.length || 1;
+  // ошибки
+  const eOpen = errList(null, "open").length, eFixing = errList(null, "fixing").length, eFixed = errList(null, "fixed").length;
+  // неделя
+  const mon = td - dow; let wk = { min: 0, inp: 0, em: 0, ef: 0, days: 0 };
+  for (let n = mon; n <= td; n++) { const x = peekDay(n); if (!x) continue; wk.min += x.sec / 60; wk.inp += x.inp || 0; wk.em += x.em || 0; wk.ef += x.ef || 0; if (x.sec >= 180 || Object.keys(x.steps || {}).length) wk.days++; }
+  const wkNew = ids.filter(id => (S.cards[id].add || 0) >= mon && S.cards[id].last).length;
+  const wkGram = GRAMMAR.filter(g => { const s2 = S.gram[g.id]; return s2 && ((s2.last || 0) >= mon || (s2.rv && (s2.rv.last || 0) >= mon)); }).length;
+  let html = `<details class="card howto" ${S.howtoSeen ? "" : "open"}><summary>📘 Как устроено обучение <span class="dim small">(нажми, чтобы ${S.howtoSeen ? "открыть" : "свернуть"})</span></summary>
+    <ol>
+      <li><b>Новое слово</b>: знакомство → выбрать перевод → написать самому.</li>
+      <li><b>Повторение по графику</b>: через 1 → 3 → ~7 → ~18 → ~45 дней. Помнишь — интервал растёт, забыл — слово начинает сначала.</li>
+      <li><b>Ступени слова</b>: 🆕 новое → 🌱 знакомлюсь → 🌿 учу → 🌳 закрепляю → ✅ знаю (3+ недели) → 🏆 выучено (2+ месяца).</li>
+      <li><b>Ошибка → журнал ошибок.</b> Она исправлена, когда ответишь верно <b>в два разных дня после ошибки</b> — так проверяется долгая память.</li>
+      <li><b>Работа над ошибками</b> — шаг плана: слова из журнала проходишь по 3 ступеням (узнать → выбрать → написать).</li>
+      <li><b>Грамматика</b>: тема засчитана при 80% → возвращается на повтор через 1 → 3 → 7 → 14 → 30 → 60 дней вместе с вопросами, где ошибался.</li>
+      <li><b>План дня по шагам</b>: сначала повторение и ошибки, потом новое.</li>
+    </ol></details>`;
   if (p) {
     const base = LEVELS[p.startLevel || p.level].hours, h = Math.max(LEVELS[p.level].hours, base + t.hours), cur = levelByHours(h);
     const pr = project(p.level, p);
     const nxt = LV[Math.min(5, lvIdx(cur) + 1)], needH = LEVELS[nxt].hours - h;
     const eta = perDay > 0.05 ? td + Math.ceil(needH / perDay) : null;
+    const planPerDay = (p.minutes + p.input) / 60, elapsed = td - p.start + 1;
+    const planH = planPerDay * elapsed, factH = t.hours, diff = factH - planH;
     html += `<div class="grid2">
-      <div class="stat"><b>${(t.sec / 3600).toFixed(1)} ч</b><span>занятий</span></div>
-      <div class="stat"><b>${(t.inp / 60).toFixed(1)} ч</b><span>погружения</span></div>
-      <div class="stat"><b>${known}</b><span>слов выучено надёжно</span></div>
-      <div class="stat"><b>${gDone}/${GRAMMAR.length}</b><span>тем грамматики</span></div>
-      <div class="stat"><b>🔥 ${streak()}</b><span>дней подряд</span></div>
-      <div class="stat"><b>${Object.values(S.days).reduce((a, d) => a + (d.xp || 0), 0)}</b><span>очков опыта</span></div></div>
-    <div class="sect-title">Активность · 12 недель</div>
-    <div class="card"><div class="heat">${heat}</div><div class="small dim" style="margin-top:8px">Темп за 2 недели: ${Math.round(perDay * 60)} мин в день${eta ? ` · ${nxt} примерно к ${fmtDate(eta)}` : ""}</div></div>
-    <div class="sect-title">Дорожная карта · ${p.plan} мес</div>
-    <div class="card"><div class="road">
+      <div class="stat"><b>${(t.sec / 3600).toFixed(1)} ч</b><span>⏱ занятий в приложении</span></div>
+      <div class="stat"><b>${(t.inp / 60).toFixed(1)} ч</b><span>🌊 погружения (сериалы и т. п.)</span></div>
+      <div class="stat"><b>${solid}</b><span>✅ слов знаешь — помнишь 3+ недели</span></div>
+      <div class="stat"><b>${gDone}/${GRAMMAR.length}</b><span>🧩 тем грамматики освоено</span></div>
+      <button class="stat" id="pErr" style="text-align:left"><b>${eOpen + eFixing}</b><span>🔧 ошибок в работе · исправлено ${eFixed} ›</span></button>
+      <div class="stat"><b>🔥 ${streak()}</b><span>дней подряд</span></div></div>
+    ${unv.length ? `<button class="btn wide sm" id="pUnv" style="margin-top:8px">❔ ${unv.length} ${plural(unv.length, "слово отмечено", "слова отмечены", "слов отмечено")} «Уже знаю», но не проверено — проверить</button>` : ""}
+
+    <div class="sect-title">Слова по ступеням · ${ids.length}</div>
+    <div class="card">
+      <div class="funnel">${[1, 2, 3, 4, 5].map(i => stCount[i] ? `<i style="width:${stCount[i] / totalW * 100}%;background:${stColors[i]}"></i>` : "").join("")}${unv.length ? `<i style="width:${unv.length / totalW * 100}%;background:var(--line2)"></i>` : ""}</div>
+      <div style="margin-top:10px">${[1, 2, 3, 4, 5].map(i => `<div class="row small" style="padding:3px 0"><i style="width:10px;height:10px;border-radius:3px;background:${stColors[i]};display:inline-block"></i><span>${STAGES[i].e} ${STAGES[i].n}</span><span class="dim">— ${STAGES[i].d}</span><b class="sp">${stCount[i]}</b></div>`).join("")}
+        ${unv.length ? `<div class="row small" style="padding:3px 0"><i style="width:10px;height:10px;border-radius:3px;background:var(--line2);display:inline-block"></i><span>${UNVERIFIED.e} ${UNVERIFIED.n}</span><span class="dim">— не проверено</span><b class="sp">${unv.length}</b></div>` : ""}</div>
+    </div>
+
+    <div class="sect-title">Итог недели · с понедельника</div>
+    <div class="card"><div class="grid2">
+      <div><b style="font-size:20px">${Math.round(wk.min + wk.inp)} мин</b><div class="small muted">занятий и погружения · ${wk.days} ${plural(wk.days, "день", "дня", "дней")}</div></div>
+      <div><b style="font-size:20px">${wkNew}</b><div class="small muted">новых слов в работе</div></div>
+      <div><b style="font-size:20px">${wk.em} / ${wk.ef}</b><div class="small muted">ошибок сделано / исправлено</div></div>
+      <div><b style="font-size:20px">${wkGram}</b><div class="small muted">тем грамматики пройдено и повторено</div></div></div></div>
+
+    <div class="sect-title">Календарь занятий · 12 недель</div>
+    <div class="card">
+      <div class="heat-wrap"><div class="heat-days">${["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map(x => `<span>${x}</span>`).join("")}</div><div class="heat" style="flex:1">${heat}</div></div>
+      <div class="heat-legend">Минут в день:
+        <i></i>0 <i style="background:#3b2a6b"></i>1–9 <i style="background:#5b3fb0"></i>10–29 <i style="background:#8b5cf6"></i>30–59 <i style="background:#22d3ee"></i>60+</div>
+      <div class="small dim" style="margin-top:8px;line-height:1.5">Квадратик — день, колонка — неделя (справа текущая), белая рамка — сегодня. Минуты = занятия в приложении + отмеченное погружение. Нажми на день — подробности.</div>
+      <div class="small" style="margin-top:8px">Средний темп: <b>${Math.round(perDay * 60)} мин в день</b> <span class="dim">(за ${span} ${plural(span, "день", "дня", "дней")}; по плану ${p.minutes + p.input})</span>${eta ? `<br>При таком темпе <b>${nxt}</b> — примерно к ${fmtDate(eta)}` : ""}</div></div>
+
+    <div class="sect-title">Дорожная карта · ${p.plan} мес · прогноз</div>
+    <div class="card">
+      <div class="small" style="line-height:1.55;margin-bottom:12px">Сейчас по факту: <b>~${Math.round(h)} ч</b> → оценка уровня по часам <span class="lvl ${cur}">${cur}</span><br>
+        <span class="muted">По плану к сегодня: ~${Math.round(planH)} ч занятий, у тебя ${factH.toFixed(1)} ч — ${diff >= 0 ? `<b style="color:#6ee7b7">опережаешь на ${diff.toFixed(1)} ч</b>` : `<b style="color:#fcd34d">отстаёшь на ${(-diff).toFixed(1)} ч</b>`}.</span></div>
+      <div class="road">
       <div class="rm past"><div class="rt">Старт · ${p.startLevel || p.level}</div><div class="rs">${fmtDate(p.start)}</div></div>
       ${pr.months.map(m => { const dd = p.start + Math.round(m.m * 30.4); const st = td >= dd ? "past" : td >= dd - 30 ? "now" : "";
         const topics = GRAMMAR.filter(g => g.lvl === (m.l === "A0" ? "A1" : m.l === "C1" ? "B2" : m.l)).slice(0, 3).map(g => g.title.split(" — ")[0].split(":")[0]).join(", ");
         return `<div class="rm ${st}"><div class="rt">Месяц ${m.m} · <span class="lvl ${m.l}">${m.l}</span></div><div class="rs">${fmtDate(dd)} · ~${Math.round(m.h)} ч · ${esc(topics)}</div></div>`; }).join("")}
-    </div><div class="small dim">План рассчитан при ${p.minutes} мин в приложении и ${p.input} мин погружения в день. Пройди тест заново раз в месяц — план подстроится.</div></div>`;
+    </div><div class="small dim" style="line-height:1.5">Это прогноз: сколько часов накопится к каждому месяцу, если заниматься ${p.minutes} мин в приложении и ${p.input} мин погружения в день. Уровень по часам — примерный (A2 ≈ 200 ч, B1 ≈ 400 ч, B2 ≈ 600 ч). Точнее — тест уровня раз в месяц.</div></div>`;
   }
   html += `<div class="sect-title">Методики внутри</div><div class="card">${METHODS.map(m => `<div class="method"><div class="mi">${m[0]}</div><div><b>${esc(m[1])}</b><p>${esc(m[2])}</p></div></div>`).join("")}</div>
     <div class="sect-title">Настройки</div>
@@ -2211,6 +2461,13 @@ function renderProg() {
     </div>`;
   el.innerHTML = html;
   $$("#sCoach button").forEach(b => b.onclick = () => { S.set.coach = b.dataset.c; save(); render(); });
+  const how = $("details.howto", el); if (how) how.ontoggle = () => { if (!how.open && !S.howtoSeen) { S.howtoSeen = true; save(); } };
+  $$(".heat i[data-day]", el).forEach(i => i.onclick = () => {
+    const n = +i.dataset.day, x = peekDay(n), st = x ? Object.keys(x.steps || {}).length : 0;
+    toast(`${fmtDate(n)}: ${x ? Math.round(x.sec / 60) : 0} мин занятий + ${x ? x.inp || 0 : 0} мин погружения${st ? ` · шагов ${st}` : ""}`);
+  });
+  if ($("#pErr")) $("#pErr").onclick = errSheet;
+  if ($("#pUnv")) $("#pUnv").onclick = () => { const v = verifySets(); startVerify(v.marked.map(itemById), "Отмеченные «Уже знаю»"); };
   $$("#sMin button").forEach(b => b.onclick = () => { p.minutes = +b.dataset.m; p.newPerDay = NEW_PER_MIN[p.minutes]; save(); render(); });
   $("#sVoice").onchange = e => { S.set.voice = e.target.value; save(); speak("Hello! Let's learn English."); };
   $("#sRate").oninput = e => { S.set.rate = +e.target.value; $("#rateV").textContent = S.set.rate; save(); };
@@ -2317,7 +2574,7 @@ T.mara = (t, el) => {
     const ok = b.dataset.id === w.id;
     $$(".opt", el).forEach(x => { x.disabled = true; if (x.dataset.id === w.id) x.classList.add("ok"); });
     if (!ok && b.dataset.id) b.classList.add("bad");
-    S.mara = S.mara || {}; S.mara[w.id] = ok ? 1 : 0;
+    S.mara = S.mara || {}; S.mara[w.id] = ok ? 1 : 0; errW(w, ok);
     if (ok) { c.streak++; c.bestStreak = Math.max(c.bestStreak, c.streak); } else { c.streak = 0; c.wrong.push(w); }
     beep(ok); if (!ok || !toRu) speak(w.en);
     setTimeout(() => next(ok), ok ? 380 : 1300);
