@@ -315,6 +315,7 @@ main{padding:14px 14px calc(var(--safe-b) + 96px);max-width:640px;margin:0 auto}
 <script src="course.js"></script>
 <script src="topics.js"></script>
 <script src="reading.js"></script>
+<script src="books.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -395,7 +396,7 @@ const saveProfiles = () => { try { localStorage.setItem(PKEY, JSON.stringify(PRO
 const curProfile = () => PROF.list.find(x => x.id === PROF.cur);
 const dataKey = id => OLD_KEY + ":" + (id || PROF.cur);
 function blank() {
-  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {}, trans: {},
+  return { v: 1, profile: null, cards: {}, own: [], gram: {}, days: {}, read: {}, speakN: 0, mara: {}, notes: {}, drill: {}, trans: {}, quotes: [],
            set: { rate: 0.9, voice: "", coach: "hard", sfx: true } };
 }
 function load() {
@@ -1233,6 +1234,52 @@ T.trans = (t, el) => {
   };
 };
 
+/* ---------- книги и цитаты ---------- */
+function chapterTx(b, i) {
+  const ch = b.chapters[i];
+  return { id: `${b.id}:${i}`, lvl: b.lvl, title: `${i + 1}. ${ch.t}`, pairs: ch.pairs, gloss: b.gloss, book: b, ch: i };
+}
+function glossLookup(gloss, raw) {
+  const w = raw.toLowerCase().replace(/[’]/g, "'").replace(/'s$/, "");
+  const tries = [w, w.replace(/ies$/, "y"), w.replace(/ied$/, "y"), w.replace(/es$/, ""), w.replace(/s$/, ""), w.replace(/ed$/, ""), w.replace(/d$/, ""), w.replace(/ing$/, ""), w.replace(/ing$/, "e")];
+  for (const k of tries) if (k && gloss[k]) return { key: k, ru: gloss[k] };
+  return null;
+}
+function bookSheet(b) {
+  openSheet(`<div class="row"><span class="lvl ${b.lvl}">${b.lvl}</span><div class="sheet-title" style="margin:0">📕 ${esc(b.title)}</div></div>
+    <div class="small dim" style="margin-top:4px">${esc(b.author)}</div>
+    <p class="small muted" style="line-height:1.55">${esc(b.about)}</p>
+    ${b.chapters.map((c, i) => `<button class="li" data-ch="${i}"><span style="font-size:18px">${S.read[b.id + ":" + i] ? "✅" : "📖"}</span><div class="lb"><div class="lt">${i + 1}. ${esc(c.t)}</div><div class="ls">${c.pairs.length} фраз</div></div><span class="dim">›</span></button>`).join("")}
+    <p class="small dim" style="margin:10px 0 0">Пересказ классики простым языком, сделан для приложения. Оригинал — в общественном достоянии.</p>`);
+  $$("[data-ch]").forEach(x => x.onclick = () => { closeSheet(); openReader(chapterTx(b, +x.dataset.ch)); });
+}
+function chapterWordsSheet(tx) {
+  // слова главы, которые есть в словаре книги, — по каждому слову текста
+  const found = new Map();
+  tx.pairs.forEach(p => p[0].split(/\s+/).forEach(tok => {
+    const raw = tok.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, ""), g = raw && glossLookup(tx.gloss, raw);
+    if (g && !found.has(g.key)) found.set(g.key, p);
+  }));
+  const words = [...found.keys()];
+  const sentOf = k => found.get(k) || ["", ""];
+  const has = k => S.own.some(o => o.en.toLowerCase() === k);
+  openSheet(`<div class="sheet-title">📒 Слова главы</div>
+    <p class="small muted" style="margin-top:-6px">Трудные слова этой главы. Отметь те, что хочешь выучить, — они попадут в «Мои слова» и пойдут в обучение первыми.</p>
+    ${words.map(k => `<div class="li" style="cursor:default"><div class="lb"><div class="lt">${esc(k)}</div><div class="ls">${esc(tx.gloss[k])}</div></div>${speakBtn(k)}
+      ${has(k) ? `<span class="chip ok">учу</span>` : `<button class="btn sm primary" data-gw="${esc(k)}">＋</button>`}</div>`).join("")}
+    ${words.some(k => !has(k)) ? `<button class="btn wide" id="gAll" style="margin-top:10px">＋ Учить все (${words.filter(k => !has(k)).length})</button>` : ""}`);
+  const addOne = k => { const [en, ru] = sentOf(k); return addOwn(k, tx.gloss[k], en.replace(/^—\s*/, ""), ru.replace(/^—\s*/, "")); };
+  $$("[data-gw]").forEach(b => b.onclick = () => { addOne(b.dataset.gw); save(); b.outerHTML = `<span class="chip ok">учу</span>`; });
+  if ($("#gAll")) $("#gAll").onclick = () => { let n = 0; words.forEach(k => { if (!has(k) && addOne(k)) n++; }); save(); closeSheet(); toast(`В обучении: ${n}`); };
+}
+function saveQuote(en, ru, src) {
+  en = String(en).replace(/^—\s*/, ""); ru = String(ru).replace(/^—\s*/, "");
+  S.quotes = S.quotes || [];
+  if (S.quotes.some(q => q.en === en)) return toast("Эта цитата уже сохранена");
+  S.quotes.unshift({ id: "q" + Date.now().toString(36), en, ru, src: src || "", d: today() });
+  save(); toast("❝ Сохранено в «Цитаты»");
+}
+
 /* правило грамматики */
 T.rule = (t, el) => {
   el.innerHTML = `<div class="q-label">Правило · <span class="lvl ${t.g.lvl}">${t.g.lvl}</span></div>
@@ -1942,9 +1989,30 @@ function renderGram() {
 let RT = "texts";
 function renderRead() {
   const el = $("#v-read"), lvl = clamp(lvIdx(P().level), 1, 4);
-  const tabs = [["texts", "📖 Тексты"], ["reading", "📚 Чтение"], ...Object.entries(MEDIA_KINDS)];
+  const tabs = [["texts", "📖 Тексты"], ["reading", "📚 Чтение"], ["books", "📕 Книги"], ["quotes", "❝ Цитаты"], ...Object.entries(MEDIA_KINDS)];
   let html = `<div class="seg" id="rtab" style="margin-bottom:12px;overflow-x:auto">${tabs.map(([k, n]) => `<button data-rt="${k}" class="${RT === k ? "on" : ""}" style="white-space:nowrap">${n}</button>`).join("")}</div>`;
-  if (RT === "reading") {
+  if (RT === "books") {
+    html += `<div class="card"><div class="small muted" style="line-height:1.55">Классика в адаптированном пересказе под уровень. Перевод — по запросу: тап по фразе «перевод», тап по слову — слово. <b style="color:var(--text)">📒 Слова главы</b> — трудные слова, любые можно взять в обучение. ❝ — сохранить фразу в цитаты.</div></div>`;
+    for (const L of ["A1", "A2", "B1", "B2"]) {
+      const list = BOOKS.filter(b => b.lvl === L); if (!list.length) continue;
+      html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
+      html += list.map(b => { const rd = b.chapters.filter((c, i) => S.read[b.id + ":" + i]).length;
+        return `<button class="li" data-book="${b.id}"><span style="font-size:22px">📕</span><div class="lb"><div class="lt">${esc(b.title)}</div>
+          <div class="ls">${esc(b.author)} · ${b.chapters.length} ${plural(b.chapters.length, "глава", "главы", "глав")}${rd ? ` · прочитано ${rd}` : ""}</div></div><span class="dim">›</span></button>`; }).join("");
+    }
+  } else if (RT === "quotes") {
+    const mine = S.quotes || [];
+    html += `<div class="sect-title">Мои цитаты · ${mine.length}</div>`;
+    html += mine.length ? mine.map(q => `<div class="card"><div class="row" style="align-items:flex-start"><div style="flex:1;font-size:16px;font-weight:600;line-height:1.45">❝ ${esc(q.en)}</div>${speakBtn(q.en)}</div>
+        <div class="small muted" style="margin-top:6px">${esc(q.ru)}</div>${q.src ? `<div class="small dim" style="margin-top:4px">— ${esc(q.src)}</div>` : ""}
+        <div class="row" style="gap:6px;margin-top:10px"><button class="btn sm" data-qlearn="${esc(q.id)}">🧠 Учить</button><button class="btn sm ghost sp" data-qdel="${esc(q.id)}">Удалить</button></div></div>`).join("")
+      : `<div class="empty">Пока пусто. В любом тексте или книге нажми ❝ под фразой — она появится здесь.</div>`;
+    html += `<div class="sect-title">Известные цитаты</div>`;
+    html += QUOTES.map((q, i) => { const saved = mine.some(m => m.en === q.en);
+      return `<div class="card"><div class="row" style="align-items:flex-start"><span class="lvl ${q.lvl}" style="margin-right:4px">${q.lvl}</span><div style="flex:1;font-size:16px;font-weight:600;line-height:1.45">${esc(q.en)}</div>${speakBtn(q.en)}</div>
+        <div class="small muted" style="margin-top:6px">${esc(q.ru)}</div><div class="small dim" style="margin-top:4px">— ${esc(q.src)}</div>
+        <div class="row" style="gap:6px;margin-top:10px">${saved ? `<span class="chip ok">в моих цитатах</span>` : `<button class="btn sm" data-qsave="${i}">❝ В мои цитаты</button>`}<button class="btn sm" data-qlearnf="${i}">🧠 Учить</button></div></div>`; }).join("");
+  } else if (RT === "reading") {
     html += `<div class="card"><div class="small muted" style="line-height:1.55">Тексты подлиннее — истории и статьи. Прочитай целиком, потом сделай <b style="color:var(--text)">✍️ Перевод</b>: переводишь фразы сам, а приложение показывает эталон. Можно и наоборот — с русского на английский. Тап по слову — перевод.</div></div>`;
     for (const L of ["A1", "A2", "B1", "B2"]) {
       html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
@@ -1983,6 +2051,11 @@ function renderRead() {
   el.innerHTML = html;
   $$("#rtab button").forEach(b => b.onclick = () => { RT = b.dataset.rt; renderRead(); window.scrollTo(0, 0); });
   $$("[data-t]", el).forEach(b => b.onclick = () => openReader([...TEXTS, ...READING].find(t => t.id === b.dataset.t)));
+  $$("[data-book]", el).forEach(b => b.onclick = () => bookSheet(BOOKS.find(x => x.id === b.dataset.book)));
+  $$("[data-qsave]", el).forEach(b => b.onclick = () => { const q = QUOTES[+b.dataset.qsave]; saveQuote(q.en, q.ru, q.src); renderRead(); });
+  $$("[data-qlearnf]", el).forEach(b => b.onclick = () => { const q = QUOTES[+b.dataset.qlearnf]; toast(addOwn(q.en, q.ru) ? (save(), "Цитата добавлена в «Мои слова» — выучишь первой") : "Уже есть в словах"); });
+  $$("[data-qlearn]", el).forEach(b => b.onclick = () => { const q = (S.quotes || []).find(x => x.id === b.dataset.qlearn); if (q) toast(addOwn(q.en, q.ru) ? (save(), "Цитата добавлена в «Мои слова» — выучишь первой") : "Уже есть в словах"); });
+  $$("[data-qdel]", el).forEach(b => b.onclick = () => { if (!confirm("Удалить цитату?")) return; S.quotes = (S.quotes || []).filter(x => x.id !== b.dataset.qdel); save(); renderRead(); });
   $$("[data-inp]", el).forEach(b => b.onclick = () => { D().inp += +b.dataset.inp; save(); render(); toast(`+${b.dataset.inp} мин погружения засчитано`); });
 }
 function openReader(tx) {
@@ -1995,12 +2068,28 @@ const IRREG = { went: "go", gone: "go", saw: "see", seen: "see", bought: "buy", 
   men: "man", women: "woman", better: "good", best: "good", worse: "bad", worst: "bad", broke: "break", knew: "know", known: "know", chose: "choose", forgot: "forget", fell: "fall",
   grew: "grow", hurt: "hurt", threw: "throw", won: "win", wore: "wear", stole: "steal", sent: "send", spent: "spend", heard: "hear", meant: "mean", put: "put", let: "let", "couldn't": "can",
   could: "can", would: "will", "i'm": "be", "it's": "be", "that's": "be", "don't": "do", "didn't": "do", "doesn't": "do", "can't": "can", "won't": "will" };
+const FUNC_RU = { a: "неопределённый артикль (один, какой-то)", an: "неопределённый артикль (перед гласной)", the: "определённый артикль (этот, тот самый)",
+  of: "предлог: принадлежность (родительный падеж)", to: "к, в; частица перед глаголом", in: "в", on: "на", at: "в, у, на (место, время)", for: "для; в течение", from: "из, от", by: "у, около; кем (в пассиве)",
+  into: "в, внутрь", under: "под", over: "над; через", above: "выше, над", below: "ниже, под", through: "через, сквозь", along: "вдоль, по", towards: "к, по направлению к", among: "среди",
+  away: "прочь, вдали", out: "наружу, вне", up: "вверх", down: "вниз", off: "прочь, с", aside: "в сторону",
+  i: "я", me: "меня, мне", my: "мой", you: "ты, вы", your: "твой, ваш", he: "он", him: "его, ему", his: "его", she: "она", her: "её, ей", it: "оно, это", its: "его (о предмете)",
+  we: "мы", us: "нас, нам", our: "наш", they: "они", them: "их, им", their: "их", herself: "себя, сама (о ней)", himself: "себя, сам (о нём)", myself: "себя, сам", itself: "себя, само",
+  this: "этот", that: "тот; что, который", these: "эти", those: "те", there: "там; there is — есть", here: "здесь",
+  and: "и", or: "или", but: "но", so: "так; поэтому", as: "как; так как", than: "чем", then: "потом, тогда", not: "не", no: "нет; никакой",
+  can: "мочь, уметь", could: "мог; мог бы", will: "будет (будущее время)", would: "бы; (будущее в прошлом)", shall: "будет; должен", should: "следует", must: "должен", may: "можно; может быть", might: "мог бы, возможно",
+  is: "есть, является (be)", are: "есть, являются (be)", am: "есть (be)", was: "был, была (be)", were: "были (be)", been: "был (be)", be: "быть",
+  do: "делать; вспомогательный глагол", does: "делает; вспомогательный глагол", did: "сделал; вспомогательный глагол (прошлое)", has: "имеет (have)", had: "имел; вспомогательный глагол (прошлое)",
+  "can't": "не может", "couldn't": "не мог", "don't": "не (do not)", "doesn't": "не (does not)", "didn't": "не (прошлое)", "won't": "не будет", "i'm": "я есть (I am)", "it's": "это есть (it is)", "we're": "мы (we are)", "let's": "давай(те)",
+  very: "очень", too: "тоже; слишком", even: "даже", only: "только", just: "только что; просто", still: "всё ещё", again: "снова", ever: "когда-либо", never: "никогда", all: "все, всё", some: "несколько, немного", any: "любой; какой-нибудь", every: "каждый",
+  one: "один", two: "два", three: "три", what: "что", who: "кто", which: "который", whose: "чей", where: "где", when: "когда", why: "почему", how: "как", if: "если", while: "пока", until: "до тех пор пока", before: "до, перед", after: "после", with: "с", without: "без", about: "о; около", like: "как; нравиться", please: "пожалуйста", oh: "о!, ох", dear: "дорогой; oh dear — ой-ой" };
 function lookup(word) {
-  const w = word.toLowerCase().replace(/[’]/g, "'").replace(/^[^a-z']+|[^a-z']+$/g, "");
+  const w = word.toLowerCase().replace(/[’]/g, "'").replace(/^[^a-z']+|[^a-z']+$/g, "").replace(/^'+|'+$/g, "");
   if (!w) return null;
   const tries = [w, IRREG[w], w.replace(/'s$/, ""), w.replace(/ies$/, "y"), w.replace(/es$/, ""), w.replace(/s$/, ""), w.replace(/ied$/, "y"), w.replace(/ed$/, ""), w.replace(/d$/, ""),
     w.replace(/ing$/, ""), w.replace(/ing$/, "e"), w.replace(/(.)\1ing$/, "$1"), w.replace(/(.)\1ed$/, "$1"), w.replace(/ly$/, ""), w.replace(/er$/, ""), w.replace(/est$/, "")];
   for (const x of tries) if (x && DICT[x]) return DICT[x];
+  const f = w.replace(/^'+|'+$/g, "");
+  if (FUNC_RU[f]) return { en: f, ru: FUNC_RU[f], func: true };
   return null;
 }
 T.reader = (t, el) => {
@@ -2009,11 +2098,17 @@ T.reader = (t, el) => {
     <div class="row wrap" style="gap:6px;margin-bottom:6px">
       <button class="btn sm" id="rAll">▶ Слушать всё</button><button class="btn sm" id="rTr">🇷🇺 Перевод</button>
       <button class="btn sm" id="rSh">🗣 Шэдоуинг</button><button class="btn sm" id="rDi">✍️ Диктант</button>
-      <button class="btn sm" id="rTrRu">📝 Перевод EN→RU</button><button class="btn sm" id="rTrEn">🔁 Перевод RU→EN</button></div>
+      <button class="btn sm" id="rTrRu">📝 Перевод EN→RU</button><button class="btn sm" id="rTrEn">🔁 Перевод RU→EN</button>
+      ${tx.gloss ? `<button class="btn sm" id="rGl">📒 Слова главы</button>` : ""}</div>
+    ${tx.book ? `<div class="small dim" style="margin-bottom:4px">${esc(tx.book.author)}</div>` : ""}
     <div class="reader" id="rd">${tx.pairs.map(([en, ru], k) => `<div class="sent" data-k="${k}"><div class="en">${en.split(/(\s+)/).map(p => /\s+/.test(p) ? p : `<span>${esc(p)}</span>`).join("")}</div>
-      <div class="tr">${esc(ru)}</div><div class="tools"><button data-say="${esc(en.replace(/^—\s*/, ""))}">🔊</button><button data-tr>перевод</button><button data-say="${esc(en.replace(/^—\s*/, ""))}" data-rate="0.65">🐢</button></div></div>`).join("")}</div>
-    <button class="btn primary big wide" id="rDone" style="margin-top:16px">Прочитал ✓</button><div style="height:220px"></div>`;
+      <div class="tr">${esc(ru)}</div><div class="tools"><button data-say="${esc(en.replace(/^—\s*/, ""))}">🔊</button><button data-tr>перевод</button><button data-say="${esc(en.replace(/^—\s*/, ""))}" data-rate="0.65">🐢</button><button data-q="${k}" title="В цитаты">❝</button></div></div>`).join("")}</div>
+    <button class="btn primary big wide" id="rDone" style="margin-top:16px">Прочитал ✓</button>
+    ${tx.book && tx.ch + 1 < tx.book.chapters.length ? `<button class="btn wide" id="rNext" style="margin-top:8px">Следующая глава → ${esc(tx.book.chapters[tx.ch + 1].t)}</button>` : ""}<div style="height:220px"></div>`;
   $$(".sent [data-tr]", el).forEach(b => b.onclick = () => b.closest(".sent").classList.toggle("show"));
+  $$(".sent [data-q]", el).forEach(b => b.onclick = () => { const [en, ru] = tx.pairs[+b.dataset.q]; saveQuote(en, ru, tx.book ? `${tx.book.author.split(" · ")[0]}, «${tx.book.title}»` : tx.title); });
+  if ($("#rGl")) $("#rGl").onclick = () => chapterWordsSheet(tx);
+  if ($("#rNext")) $("#rNext").onclick = () => { $("#pop").classList.remove("on"); S.read[tx.id] = (S.read[tx.id] || 0) + 1; D().xp += 5; save(); openReader(chapterTx(tx.book, tx.ch + 1)); };
   $("#rTr").onclick = () => $("#rd").classList.toggle("showall");
   let playing = false;
   $("#rAll").onclick = async () => {
@@ -2035,18 +2130,20 @@ T.reader = (t, el) => {
   $("#rDone").onclick = () => { $("#pop").classList.remove("on"); S.read[tx.id] = (S.read[tx.id] || 0) + 1; D().xp += 5; save(); closeStage(); toast("Засчитано. Перечитай через пару дней — зайдёт ещё лучше"); };
   $$(".sent .en span", el).forEach(sp => sp.onclick = () => {
     $$(".sent .en span.sel", el).forEach(x => x.classList.remove("sel")); sp.classList.add("sel");
-    const raw = sp.textContent.replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, ""), w = lookup(raw);
+    const raw = sp.textContent.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, ""), w0 = lookup(raw), gl = (!w0 || w0.func) && tx.gloss ? glossLookup(tx.gloss, raw) : null, w = gl ? null : w0;
     const k = +sp.closest(".sent").dataset.k, [en, ru] = tx.pairs[k];
     const pop = $("#pop");
     pop.innerHTML = `<div class="row"><div style="flex:1"><div style="font-size:20px;font-weight:800">${esc(raw)}</div>
-      <div class="q-ru" style="font-size:16px">${w ? esc(w.en.toLowerCase() !== raw.toLowerCase() ? w.en + " — " + w.ru : w.ru) : "нет в словаре — смотри перевод фразы"}</div></div>${speakBtn(raw)}<button class="icon-btn" id="pX">✕</button></div>
+      <div class="q-ru" style="font-size:16px">${w ? esc(w.en.toLowerCase() !== raw.toLowerCase() ? w.en + " — " + w.ru : w.ru) : gl ? esc((gl.key !== raw.toLowerCase() ? gl.key + " — " : "") + gl.ru) : "нет в словаре — смотри перевод фразы"}</div></div>${speakBtn(raw)}<button class="icon-btn" id="pX">✕</button></div>
       <div class="small muted" style="margin-top:8px">${esc(ru)}</div>
-      <div class="row" style="margin-top:10px;gap:8px">${w ? (S.cards[w.id] ? `<span class="chip ok">уже в колоде</span>` : `<button class="btn sm primary" id="pAdd">＋ В колоду</button>`) : `<button class="btn sm primary" id="pOwn">＋ Добавить с переводом</button>`}
-      <button class="btn sm" id="pSent">＋ Фразу целиком</button></div>`;
+      <div class="row wrap" style="margin-top:10px;gap:8px">${w && w.func ? `<span class="chip">служебное слово</span>` : w ? (S.cards[w.id] ? `<span class="chip ok">уже в колоде</span>` : `<button class="btn sm primary" id="pAdd">＋ В колоду</button>`) : gl ? `<button class="btn sm primary" id="pGl">＋ Учить слово</button>` : `<button class="btn sm primary" id="pOwn">＋ Добавить с переводом</button>`}
+      <button class="btn sm" id="pSent">＋ Фразу целиком</button><button class="btn sm" id="pQ">❝ В цитаты</button></div>`;
     pop.classList.add("on");
     speak(raw);
     $("#pX").onclick = () => { pop.classList.remove("on"); sp.classList.remove("sel"); };
     if ($("#pAdd")) $("#pAdd").onclick = () => { S.cards[w.id] = newCard(0); save(); pop.classList.remove("on"); toast("В колоде — повторишь сегодня"); };
+    if ($("#pGl")) $("#pGl").onclick = () => { pop.classList.remove("on"); toast(addOwn(gl.key, gl.ru, en.replace(/^—\s*/, ""), ru.replace(/^—\s*/, "")) ? (save(), `«${gl.key}» — в обучении`) : "Это слово уже есть"); };
+    $("#pQ").onclick = () => { pop.classList.remove("on"); saveQuote(en, ru, tx.book ? `${tx.book.author.split(" · ")[0]}, «${tx.book.title}»` : tx.title); };
     if ($("#pOwn")) $("#pOwn").onclick = () => { pop.classList.remove("on"); addWordSheet({ en: raw.toLowerCase(), ex: en.replace(/^—\s*/, ""), exr: ru.replace(/^—\s*/, "") }); };
     $("#pSent").onclick = () => {
       const c = addOwn(en.replace(/^—\s*/, ""), ru.replace(/^—\s*/, ""));
