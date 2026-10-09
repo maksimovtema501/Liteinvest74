@@ -1,15 +1,17 @@
 /* Service worker «Лингво».
    Заниматься надо и в метро без связи, поэтому оболочка, словарь и курс
    кэшируются целиком; прогресс и так лежит в localStorage. */
-const CACHE = "lingvo-v12";
+const CACHE = "lingvo-v13";
 const SHELL = [
   "./",
   "./index.html",
   "./words.js",
   "./words-ext.js",
+  "./words-ext2.js",
   "./course.js",
   "./topics.js",
   "./reading.js",
+  "./stories.js",
   "./books.js",
   "./manifest.webmanifest",
   "./icon-180.png",

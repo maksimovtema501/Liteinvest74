@@ -325,9 +325,11 @@ details.howto summary::-webkit-details-marker{display:none}
 
 <script src="words.js"></script>
 <script src="words-ext.js"></script>
+<script src="words-ext2.js"></script>
 <script src="course.js"></script>
 <script src="topics.js"></script>
 <script src="reading.js"></script>
+<script src="stories.js"></script>
 <script src="books.js"></script>
 <script>
 "use strict";
@@ -381,6 +383,7 @@ function parseWords(raw) {
 }
 parseWords(WORDS_RAW);
 if (typeof WORDS_EXT === "string") parseWords(WORDS_EXT);
+if (typeof WORDS_EXT2 === "string") parseWords(WORDS_EXT2);
 const KIND_NAME = { w: "слово", ch: "фраза", pv: "фразовый глагол", own: "моё" };
 
 /* ============================================================
@@ -2186,6 +2189,7 @@ function renderGram() {
 }
 
 let RT = "texts";
+let RK = "all";
 function renderRead() {
   const el = $("#v-read"), lvl = clamp(lvIdx(P().level), 1, 4);
   const tabs = [["texts", "📖 Тексты"], ["reading", "📚 Чтение"], ["books", "📕 Книги"], ["quotes", "❝ Цитаты"], ...Object.entries(MEDIA_KINDS)];
@@ -2212,12 +2216,16 @@ function renderRead() {
         <div class="small muted" style="margin-top:6px">${esc(q.ru)}</div><div class="small dim" style="margin-top:4px">— ${esc(q.src)}</div>
         <div class="row" style="gap:6px;margin-top:10px">${saved ? `<span class="chip ok">в моих цитатах</span>` : `<button class="btn sm" data-qsave="${i}">❝ В мои цитаты</button>`}<button class="btn sm" data-qlearnf="${i}">🧠 Учить</button></div></div>`; }).join("");
   } else if (RT === "reading") {
-    html += `<div class="card"><div class="small muted" style="line-height:1.55">Тексты подлиннее — истории и статьи. Прочитай целиком, потом сделай <b style="color:var(--text)">✍️ Перевод</b>: переводишь фразы сам, а приложение показывает эталон. Можно и наоборот — с русского на английский. Тап по слову — перевод.</div></div>`;
+    html += `<div class="card"><div class="small muted" style="line-height:1.55">Рассказы, выжимки известных книг, статьи и диалоги. Прочитай целиком, потом сделай <b style="color:var(--text)">✍️ Перевод</b>: переводишь фразы сам, а приложение показывает эталон. Можно и наоборот — с русского на английский. Тап по слову — перевод.</div></div>`;
+    const kinds = [["all", "Все"], ["story", "📖 Рассказы"], ["sum", "📝 Выжимки"], ["art", "📰 Статьи"], ["dlg", "💬 Диалоги"]];
+    html += `<div class="row wrap" id="rk" style="gap:6px;margin-bottom:6px">${kinds.map(([k, n]) => `<button class="chip${RK === k ? " ok" : ""}" data-rk="${k}" style="font-size:13px;padding:6px 10px">${n} · ${k === "all" ? READING.length : READING.filter(t => t.kind === k).length}</button>`).join("")}</div>`;
+    if (RK === "sum") html += `<div class="small muted" style="margin:6px 2px 4px;line-height:1.5">Выжимки — суть известных книг в 8–10 фразах: сюжет и главная мысль. Хороший способ узнать книгу и заодно выучить слова.</div>`;
     for (const L of ["A1", "A2", "B1", "B2"]) {
+      const list = READING.filter(t => t.lvl === L && (RK === "all" || t.kind === RK)); if (!list.length) continue;
       html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
-      html += READING.filter(t => t.lvl === L).map(t => { const tr = (S.trans || {})[t.id];
+      html += list.map(t => { const tr = (S.trans || {})[t.id];
         return `<button class="li" data-t="${t.id}"><span style="font-size:18px">${tr ? "✅" : S.read[t.id] ? "📖" : "📚"}</span>
-        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]}` : ""}${tr ? ` · перевод ${tr.best}%` : ""}</div></div><span class="dim">›</span></button>`; }).join("");
+        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.src ? esc(t.src) + " · " : ""}${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]}` : ""}${tr ? ` · перевод ${tr.best}%` : ""}</div></div><span class="dim">›</span></button>`; }).join("");
     }
   } else if (RT === "texts") {
     html += `<div class="card"><div class="small muted">Понятный ввод: читай и слушай тексты своего уровня. Тап по слову — перевод и «в колоду», 🔊 — озвучка фразы. Слушай каждый текст несколько раз, потом повторяй вслух.</div></div>`;
@@ -2249,6 +2257,7 @@ function renderRead() {
   }
   el.innerHTML = html;
   $$("#rtab button").forEach(b => b.onclick = () => { RT = b.dataset.rt; renderRead(); window.scrollTo(0, 0); });
+  $$("#rk [data-rk]", el).forEach(b => b.onclick = () => { RK = b.dataset.rk; renderRead(); });
   $$("[data-t]", el).forEach(b => b.onclick = () => openReader([...TEXTS, ...READING].find(t => t.id === b.dataset.t)));
   $$("[data-book]", el).forEach(b => b.onclick = () => bookSheet(BOOKS.find(x => x.id === b.dataset.book)));
   $$("[data-qsave]", el).forEach(b => b.onclick = () => { const q = QUOTES[+b.dataset.qsave]; saveQuote(q.en, q.ru, q.src); renderRead(); });
