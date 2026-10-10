@@ -1,7 +1,7 @@
 /* Service worker «Лингво».
    Заниматься надо и в метро без связи, поэтому оболочка, словарь и курс
    кэшируются целиком; прогресс и так лежит в localStorage. */
-const CACHE = "lingvo-v14";
+const CACHE = "lingvo-v15";
 const SHELL = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const SHELL = [
   "./words-ext.js",
   "./words-ext2.js",
   "./course.js",
+  "./grammar-ext.js",
   "./topics.js",
   "./reading.js",
   "./stories.js",
@@ -33,7 +34,8 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   const req = e.request;
-  if (req.method !== "GET") return;
+  // чужие сайты (GitHub, Anthropic) — напрямую в сеть, мимо кэша
+  if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
 
   // Навигация: мгновенно отдаём кэш, параллельно тянем свежую версию —
   // следующий запуск покажет обновление.
