@@ -217,6 +217,9 @@ details.howto summary::-webkit-details-marker{display:none}
 .fb.ok{background:rgba(16,185,129,.14);border:1px solid rgba(16,185,129,.5)}
 .fb.bad{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45)}
 .fb.mid{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.45)}
+.spell{margin-top:6px;font:15px/1.6 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.5px}
+.spell b.sx{color:#fcd34d;background:rgba(245,158,11,.25);border-radius:3px;padding:0 1px;font-weight:800}
+.spell s.sx{color:#fca5a5}
 .speak-btn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:rgba(139,92,246,.18);color:#c4b5fd;font-size:20px;flex-shrink:0}
 .speak-btn:active{transform:scale(.92)}
 .play-big{width:96px;height:96px;border-radius:50%;background:var(--violet);color:#fff;font-size:38px;display:flex;align-items:center;justify-content:center;margin:10px auto;box-shadow:0 10px 30px rgba(139,92,246,.35)}
@@ -431,10 +434,19 @@ const itemById = id => WMAP[id] || S.own.find(o => o.id === id);
 const coach = k => rnd(COACH[S.set.coach === "soft" ? "soft" : "hard"][k]);
 
 /* ============================================================
-   Интервальные повторения (SM-2 с днями как единицей)
+   Интервальные повторения
+   По умолчанию — FSRS-5 (Free Spaced Repetition Scheduler, Ye и др., 2022–2024):
+   модель памяти «стабильность — трудность — вероятность вспомнить», обученная
+   на сотнях миллионов повторений Anki. Интервал подбирается так, чтобы к
+   следующему показу слово вспоминалось с заданной вероятностью (90%), и
+   учитывает, сколько дней на самом деле прошло (пропуски не ломают график).
+   Классический SM-2 остаётся в настройках (S.set.srs = "sm2").
+   Поля карточки: due, ivl, ease, reps, lapses, last — как раньше (их читает
+   остальное приложение); s — стабильность в днях, d — трудность 1–10,
+   lr — день последнего ответа для FSRS (ставится и в «Новых словах»).
    ============================================================ */
 function newCard(dueIn = 1) { return { due: today() + dueIn, ivl: 0, ease: 2.5, reps: 0, lapses: 0, add: today() }; }
-function grade(c, q) {
+function gradeSM2(c, q, preview) {
   const t = today();
   if (q === 0) { c.lapses++; c.reps = 0; c.ivl = 1; c.ease = Math.max(1.3, c.ease - 0.2); }
   else {
@@ -443,9 +455,68 @@ function grade(c, q) {
     else { c.ivl = c.reps === 0 ? 3 : Math.round(Math.max(c.ivl, 1) * c.ease * 1.3) + 1; c.ease += 0.15; }
     c.reps++;
   }
-  if (c.ivl > 4) c.ivl = Math.round(c.ivl * (0.95 + Math.random() * 0.1));
+  if (c.ivl > 4 && !preview) c.ivl = Math.round(c.ivl * (0.95 + Math.random() * 0.1));
   c.due = t + c.ivl; c.last = t;
+  delete c.s; delete c.d; delete c.lr; // при возврате на FSRS состояние пересчитается из интервала
 }
+/* FSRS-5: параметры по умолчанию и формулы — как в официальной библиотеке py-fsrs 4.x */
+const FW = [0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604, 0.0046, 1.54575, 0.1192, 1.01925, 1.9395, 0.11, 0.29605, 2.2698, 0.2315, 2.9898, 0.51655, 0.6621];
+const F_DECAY = -0.5, F_FACTOR = Math.pow(0.9, 1 / F_DECAY) - 1;
+const fsrsD0 = g => clamp(FW[4] - Math.exp(FW[5] * (g - 1)) + 1, 1, 10);
+const fsrsR = (t, s) => Math.pow(1 + F_FACTOR * t / s, F_DECAY);
+const fsrsNextD = (d, g) => clamp(FW[7] * fsrsD0(4) + (1 - FW[7]) * (d + (10 - d) * (-FW[6] * (g - 3)) / 9), 1, 10);
+const fsrsRecallS = (d, s, r, g) => s * (1 + Math.exp(FW[8]) * (11 - d) * Math.pow(s, -FW[9]) * (Math.exp((1 - r) * FW[10]) - 1) * (g === 2 ? FW[15] : 1) * (g === 4 ? FW[16] : 1));
+const fsrsForgetS = (d, s, r) => Math.min(FW[11] * Math.pow(d, -FW[12]) * (Math.pow(s + 1, FW[13]) - 1) * Math.exp((1 - r) * FW[14]), s / Math.exp(FW[17] * FW[18]));
+const fsrsShortS = (s, g) => s * Math.exp(FW[17] * (g - 3 + FW[18]));
+const retention = () => [0.85, 0.9, 0.95].includes(S.set.ret) ? S.set.ret : 0.9;
+const fsrsIvl = s => clamp(Math.round(s / F_FACTOR * (Math.pow(retention(), 1 / F_DECAY) - 1)), 1, 36500);
+function fsrsFuzz(ivl) {
+  if (ivl < 2.5) return ivl;
+  let delta = 1;
+  for (const [a, b, f] of [[2.5, 7, 0.15], [7, 20, 0.1], [20, Infinity, 0.05]]) delta += f * Math.max(Math.min(ivl, b) - a, 0);
+  const lo = Math.max(2, Math.round(ivl - delta)), hi = Math.max(lo, Math.round(ivl + delta));
+  return Math.min(lo + Math.floor(Math.random() * (hi - lo + 1)), 36500);
+}
+const easeFromD = d => clamp(2.5 + (fsrsD0(3) - d) / 4, 1.3, 3.5); // «лёгкость» для старого кода и для SM-2
+/* Состояние FSRS для карточки, которую раньше вёл SM-2: стабильность ≈ текущему
+   интервалу, трудность — от «лёгкости» SM-2. Карточка без ответов получит
+   состояние при первой оценке (тогда возвращает false). */
+function fsrsState(c) {
+  if (c.s > 0 && c.d > 0) return true;
+  if (!(c.reps > 0 || c.lapses > 0 || c.ivl > 0)) return false;
+  const e = c.ease || 2.5;
+  if (c.reps === 1 && (c.ivl || 0) <= 1 && !c.lapses) c.s = FW[2]; // выучено в «Новых словах» — первая оценка «Помню»
+  else c.s = Math.max(0.5, c.ivl || 1);
+  c.d = clamp(fsrsD0(3) + (2.5 - e) * 4, 1, 10);
+  return true;
+}
+/* первое знакомство в «Новых словах» — первая оценка FSRS: без ошибок — «Помню»,
+   с ошибками — «Забыл», а затем верный ответ в тот же день */
+function fsrsLearned(c, clean) {
+  if (clean) { c.s = FW[2]; c.d = fsrsD0(3); }
+  else { c.s = fsrsShortS(FW[0], 3); c.d = fsrsNextD(fsrsD0(1), 3); }
+  c.lr = today();
+}
+function gradeFsrs(c, q, preview) {
+  const t = today(), g = q + 1;
+  if (!fsrsState(c)) { c.s = Math.max(0.1, FW[g - 1]); c.d = fsrsD0(g); }
+  else {
+    const last = c.lr != null ? c.lr : c.last != null ? c.last : c.due - (c.ivl || 0);
+    const el = Math.max(0, t - last), d0 = c.d;
+    if (el < 1) c.s = fsrsShortS(c.s, g);
+    else { const r = fsrsR(el, c.s); c.s = g === 1 ? fsrsForgetS(d0, c.s, r) : fsrsRecallS(d0, c.s, r, g); }
+    c.d = fsrsNextD(d0, g);
+    c.s = Math.max(0.01, c.s);
+  }
+  // забытое слово проверяем уже завтра (после сна); стабильность при этом не обнуляется
+  if (g === 1) { c.lapses++; c.reps = 0; c.ivl = 1; }
+  else { c.reps++; const iv = fsrsIvl(c.s); c.ivl = preview ? iv : fsrsFuzz(iv); }
+  c.ease = easeFromD(c.d);
+  c.due = t + c.ivl; c.last = t; c.lr = t;
+}
+const useFsrs = () => S.set.srs !== "sm2";
+/* q: 0 — забыл, 1 — трудно, 2 — помню, 3 — легко. preview — только посчитать интервал для кнопки */
+function grade(c, q, preview) { return useFsrs() ? gradeFsrs(c, q, preview) : gradeSM2(c, q, preview); }
 const isKnown = c => c && c.ivl >= 21;
 
 /* ---------- Журнал ошибок ----------
@@ -519,11 +590,39 @@ function dueIds() {
   const t = today();
   return Object.keys(S.cards).filter(id => S.cards[id].due <= t && itemById(id)).sort((a, b) => S.cards[a].due - S.cards[b].due);
 }
+/* Слова одной смысловой группы (фрукты, дни недели, «горячий — холодный»),
+   выученные вместе, путаются и запоминаются хуже — исследования Тинкхэма
+   (1993, 1997), Уоринга (1997), обзор Нейшна (2000). Поэтому внутри уровня
+   темы идут по очереди, а соседние по списку слова попадают в разные пачки. */
+function mixTopics(list) {
+  const base = [], streams = new Map();
+  for (const w of list) {
+    if (!w.topic) base.push(w);
+    else { if (!streams.has(w.topic)) streams.set(w.topic, []); streams.get(w.topic).push(w); }
+  }
+  const st = [...streams.values()], out = [];
+  let bi = 0, k = 0;
+  while (bi < base.length || st.some(x => x.length)) {
+    if (bi < base.length) out.push(base[bi++]);
+    for (let n = 0; n < st.length; n++) { const x = st[(k + n) % st.length]; if (x.length) { out.push(x.shift()); k = (k + n + 1) % st.length; break; } }
+  }
+  // соседние слова — в разные пачки по 5: в окне из 25 берём каждое пятое
+  const res = [];
+  for (let i = 0; i < out.length; i += 25) { const win = out.slice(i, i + 25); for (let r = 0; r < 5; r++) for (let j = r; j < win.length; j += 5) res.push(win[j]); }
+  return res;
+}
+let CUR_CACHE = { key: "", list: [] };
 function curriculum() {
-  const start = clamp(lvIdx(S.profile ? S.profile.level : "A0"), 1, 4);
+  const start = clamp(lvIdx(S.profile ? S.profile.level : "A0"), 1, 4), mix = S.set.mixTopics !== false;
+  const key = start + "|" + mix + "|" + WORDS.length;
+  if (CUR_CACHE.key === key) return CUR_CACHE.list;
   // по уровням: сначала все слова A1 (базовые, потом расширенные), затем A2…
-  const main = WORDS.filter(w => w.kind === "w" && lvIdx(w.lvl) >= start).map((w, i) => [w, i])
+  let main = WORDS.filter(w => w.kind === "w" && lvIdx(w.lvl) >= start).map((w, i) => [w, i])
     .sort((a, b) => lvIdx(a[0].lvl) - lvIdx(b[0].lvl) || a[1] - b[1]).map(x => x[0]);
+  if (mix) {
+    const byL = {}; main.forEach(w => (byL[w.lvl] = byL[w.lvl] || []).push(w));
+    main = Object.keys(byL).sort((a, b) => lvIdx(a) - lvIdx(b)).flatMap(L => mixTopics(byL[L]));
+  }
   const ch = WORDS.filter(w => w.kind === "ch"), pv = WORDS.filter(w => w.kind === "pv");
   const out = []; let i = 0, ci = 0, pi = 0;
   for (const w of main) {
@@ -533,6 +632,7 @@ function curriculum() {
   }
   while (ci < ch.length) out.push(ch[ci++]);
   while (pi < pv.length) out.push(pv[pi++]);
+  CUR_CACHE = { key, list: out };
   return out;
 }
 const newQueue = () => [...S.own, ...curriculum()].filter(w => !S.cards[w.id]);
@@ -560,14 +660,18 @@ function norm(s, alt) {
   t = t.replace(/\b(\w{2,})our\b/g, "$1or").replace(/\b(\w{3,})is(e|ed|es|ing)\b/g, "$1iz$2").replace(/\bok(ay)?\b/g, "ok");
   return t.replace(/\s+/g, " ").trim();
 }
+/* расстояние между словами в правках; перестановка соседних букв (recieve) — одна опечатка */
 function lev(a, b) {
   if (a === b) return 0;
   const m = a.length, n = b.length; if (!m || !n) return m || n;
-  let p = Array.from({ length: n + 1 }, (_, i) => i);
+  let pp = null, p = Array.from({ length: n + 1 }, (_, i) => i);
   for (let i = 1; i <= m; i++) {
     const c = [i];
-    for (let j = 1; j <= n; j++) c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    p = c;
+    for (let j = 1; j <= n; j++) {
+      c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (pp && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) c[j] = Math.min(c[j], pp[j - 2] + 1);
+    }
+    pp = p; p = c;
   }
   return p[n];
 }
@@ -583,6 +687,26 @@ function check(user, target) {
     if (lev(u, tNoTo) <= Math.max(1, Math.floor(tNoTo.length / 8))) best = 1;
   }
   return best;
+}
+/* Побуквенный разбор: какие буквы перепутал, пропустил или добавил.
+   Заметить разницу между своим ответом и правильным — условие, чтобы
+   исправиться (гипотеза замечания, Schmidt 1990). */
+function spellNote(user, target, r) {
+  const a = String(user || "").trim().toLowerCase();
+  if (!a || r === 2) return "";
+  const vars = String(target).split(" / ").map(x => x.trim().toLowerCase());
+  const b = vars.reduce((x, y) => lev(a, y) < lev(a, x) ? y : x);
+  if (a === b) return "";
+  if (lev(a, b) > Math.max(2, Math.floor(b.length / 2))) return `<div class="spell"><span class="dim">твой ответ:</span> ${esc(a)}</div>`;
+  const m = a.length, n = b.length, L = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  let i = 0, j = 0, ub = "", tb = "";
+  while (i < m || j < n) {
+    if (i < m && j < n && a[i] === b[j]) { ub += esc(a[i]); tb += esc(b[j]); i++; j++; }
+    else if (j < n && (i >= m || L[i][j + 1] >= L[i + 1][j])) { tb += `<b class="sx">${esc(b[j])}</b>`; j++; }
+    else { ub += `<s class="sx">${esc(a[i])}</s>`; i++; }
+  }
+  return `<div class="spell"><span class="dim">твой ответ:</span> ${ub}<br><span class="dim">правильно:</span> ${tb}</div>`;
 }
 /* Пословное сравнение (LCS) для диктанта и шэдоуинга.
    Здесь сокращения не раскрываем: «I'm» в тексте сравнивается с «I'm» в ответе. */
@@ -805,23 +929,85 @@ function feedback(el, kind, html) {
 /* ---------- типы заданий ---------- */
 const T = {};
 
-/* знакомство с новым словом */
+/* знакомство с новым словом.
+   Претест: сначала попробуй угадать значение по слову и примеру, потом смотри
+   перевод — попытка вспомнить или догадаться до ответа, даже неверная,
+   улучшает запоминание (Kornell, Hays & Bjork 2009; Potts & Shanks 2014). */
 T.intro = (t, el) => {
-  const w = t.w;
+  const w = t.w, pre = S.set.pretest !== false && !t.shown;
   el.innerHTML = `
     <div class="q-label">Новое ${KIND_NAME[w.kind] || "слово"} · <span class="lvl ${w.lvl || ""}">${esc(w.lvl || "моё")}</span></div>
     <div class="row" style="align-items:flex-start"><div class="q-big" style="flex:1">${esc(w.en)}</div>${speakBtn(w.en)}</div>
-    <div class="q-ru">${esc(w.ru)}</div>
-    ${exHtml(w)}
-    <p class="small dim" style="margin-top:14px">Произнеси вслух 2 раза и представь ситуацию, где ты это скажешь. Так слово цепляется в 2 раза лучше.</p>
-    <div class="actions"><button class="btn" id="iKnow">Уже знаю</button><button class="btn primary" id="iLearn">Учить →</button></div>`;
+    ${pre ? `<div id="inQ">${w.ex ? `<div class="q-ex"><div class="row" style="align-items:flex-start"><div style="flex:1">${esc(w.ex)}</div>${speakBtn(w.ex)}</div></div>` : ""}
+      <p class="small muted" style="margin-top:12px;line-height:1.5">🤔 Как думаешь, что это значит? Догадайся по слову${w.ex ? " и примеру" : ""} — даже неверная догадка помогает запомнить.</p>
+      <button class="btn primary big wide" id="inShow">Показать перевод</button></div>` : ""}
+    <div id="inA" ${pre ? `style="display:none"` : ""}>
+      <div class="q-ru">${esc(w.ru)}</div>
+      ${exHtml(w)}
+      <p class="small dim" style="margin-top:14px">Произнеси вслух 2 раза и представь ситуацию, где ты это скажешь. Так слово цепляется в 2 раза лучше.</p>
+      <div class="actions"><button class="btn" id="iKnow">Уже знаю</button><button class="btn primary" id="iLearn">Учить →</button></div></div>`;
   speak(w.en);
+  if (pre) $("#inShow", el).onclick = () => { t.shown = true; $("#inQ", el).remove(); $("#inA", el).style.display = ""; };
   $("#iKnow").onclick = () => {
-    const c = newCard(30); c.ivl = 30; c.reps = 2; S.cards[w.id] = c; D().nw++;
     ST.tasks = ST.tasks.filter((x, k) => k <= ST.i || !x.w || x.w.id !== w.id);
+    if (S.set.knowCheck === false) { const c = newCard(30); c.ivl = 30; c.reps = 2; S.cards[w.id] = c; D().nw++; return next(null); }
+    // «знаю» засчитаем после проверки через несколько карточек — и не в счёт дневной нормы
+    ST.tasks.splice(Math.min(ST.tasks.length, ST.i + 5), 0, { type: "knowChk", w });
     next(null);
   };
   $("#iLearn").onclick = () => { if (!S.cards[w.id]) { S.cards[w.id] = newCard(1); D().nw++; } next(null); };
+};
+/* Проверка «Уже знаю»: ощущение «знаю» часто обманывает (иллюзия знания —
+   Koriat & Bjork 2005; Dunlosky & Rawson 2012), поэтому слово засчитывается
+   выученным, только если через несколько карточек ты сам напишешь его
+   по-английски. Не вспомнил — слово тут же идёт в обучение.
+   solo — проверка из карточки слова в словаре. */
+function markKnownVerified(w) {
+  const c = newCard(30);
+  Object.assign(c, { ivl: 30, reps: 2, vt: today(), s: 30, d: fsrsD0(4), lr: today() });
+  S.cards[w.id] = c;
+}
+T.knowChk = (t, el) => {
+  const w = t.w;
+  el.innerHTML = `<div class="q-label">Проверка «Уже знаю» · напиши по-английски</div>
+    <div class="q-mid">${esc(w.ru)}</div>
+    ${w.exr ? `<p class="small muted">Ситуация: ${esc(w.exr)}</p>` : ""}
+    <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ответ…">
+    <div class="actions"><button class="btn" id="idk">Не помню</button><button class="btn primary" id="chk">Проверить</button></div>
+    <div id="fbx"></div>`;
+  const inp = $("#ans", el); setTimeout(() => inp.focus(), 60);
+  let answered = false;
+  const finish = v => {
+    if (answered) return; answered = true;
+    const r = v ? check(v, w.en) : 0, had = S.cards[w.id];
+    beep(r > 0); speak(w.en);
+    let msg;
+    if (r > 0) {
+      markKnownVerified(w); if (t.solo && had) errW(w, true);
+      msg = "✅ Правда знаешь — слово засчитано выученным, проверим через месяц.";
+      if (ST.step === "new") { // вместо знакомого — следующее новое слово, чтобы норма дня осталась прежней
+        const inSession = new Set(ST.tasks.filter(x => x.w).map(x => x.w.id)), nx = newQueue().find(x => !inSession.has(x.id));
+        if (nx) { ST.tasks.push({ type: "intro", w: nx }, { type: "pick", w: nx }, { type: "type", w: nx }); msg += " Вместо него в конце будет новое слово."; }
+      }
+    } else if (t.solo && had) {
+      grade(had, 0); errW(w, false);
+      msg = "Не вспомнилось — слово остаётся в обучении, повторишь завтра.";
+    } else {
+      S.cards[w.id] = newCard(1); D().nw++; markFail(w.id); // не вспомнил — для расписания это ошибка при знакомстве
+      const at = Math.min(ST.tasks.length, ST.i + 1);
+      ST.tasks.splice(at, 0, { type: "pick", w });
+      ST.tasks.splice(Math.min(ST.tasks.length, ST.i + 4), 0, { type: "type", w });
+      msg = "Не вспомнилось — значит, выучим сейчас.";
+    }
+    feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
+      `<b>${esc(msg)}</b><div class="row" style="margin-top:6px"><div style="flex:1"><span style="font-size:18px;font-weight:700">${esc(w.en)}</span> — ${esc(w.ru)}${spellNote(v, w.en, r)}</div>${speakBtn(w.en)}</div>`);
+    $(".actions", el).innerHTML = `<button class="btn primary" id="nx">Дальше</button>`;
+    $("#nx", el).onclick = () => next(null);
+    setTimeout(() => $("#nx", el) && $("#nx", el).focus(), 50);
+  };
+  $("#chk", el).onclick = () => { if (inp.value.trim()) finish(inp.value); };
+  $("#idk", el).onclick = () => finish("");
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); answered ? $("#nx", el).click() : $("#chk", el).click(); } };
 };
 
 /* выбрать перевод */
@@ -855,12 +1041,12 @@ T.type = (t, el) => {
     <div id="fbx"></div>`;
   const inp = $("#ans"); setTimeout(() => inp.focus(), 60);
   let answered = false;
-  const finish = (r) => {
+  const finish = (r, val) => {
     if (answered) return; answered = true;
     const c = S.cards[w.id];
     const okMsg = r === 2 ? coach("right") : r === 1 ? "Почти — опечатка." : coach("wrong");
     feedback($("#fbx"), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
-      `<div class="row"><div style="flex:1"><b>${esc(okMsg)}</b><br><span style="font-size:18px;font-weight:700">${esc(w.en)}</span> — ${esc(w.ru)}</div>${speakBtn(w.en)}</div>`);
+      `<div class="row"><div style="flex:1"><b>${esc(okMsg)}</b><br><span style="font-size:18px;font-weight:700">${esc(w.en)}</span> — ${esc(w.ru)}${spellNote(val, w.en, r)}</div>${speakBtn(w.en)}</div>`);
     speak(w.en); beep(r > 0);
     const acts = $(".actions", el);
     if (t.review) {
@@ -875,14 +1061,15 @@ T.type = (t, el) => {
       if ($("#typo")) $("#typo").onclick = () => apply(1);
     } else {
       if (r === 0) { markFail(w.id); ST.tasks.splice(Math.min(ST.tasks.length, ST.i + 3), 0, { type: "type", w, retry: true }); }
-      else if (c && !t.retry) { const f = (ST.ctx.fails || {})[w.id]; if (!f) { c.reps = 1; c.ivl = 1; } else { c.ease = Math.max(1.3, c.ease - 0.2); } c.due = today() + 1; }
+      else if (c && !t.retry) { const f = (ST.ctx.fails || {})[w.id]; if (!f) { c.reps = 1; c.ivl = 1; } else { c.ease = Math.max(1.3, c.ease - 0.2); } c.due = today() + 1; fsrsLearned(c, !f); }
+      else if (c && t.retry && !(c.s > 0)) fsrsLearned(c, false);
       acts.innerHTML = `<button class="btn primary" id="nx">Дальше</button>`;
       $("#nx").onclick = () => next(r > 0 && !t.retry ? true : r > 0 ? null : false);
     }
     setTimeout(() => $("#nx") && $("#nx").focus(), 50);
   };
-  $("#chk").onclick = () => { if (inp.value.trim()) finish(check(inp.value, w.en)); };
-  $("#idk").onclick = () => finish(0);
+  $("#chk").onclick = () => { if (inp.value.trim()) finish(check(inp.value, w.en), inp.value); };
+  $("#idk").onclick = () => finish(0, "");
   inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); if (answered) $("#nx") && $("#nx").click(); else $("#chk").click(); } };
 };
 function markFail(id) { ST.ctx.fails = ST.ctx.fails || {}; ST.ctx.fails[id] = (ST.ctx.fails[id] || 0) + 1; }
@@ -906,7 +1093,7 @@ T.recall = (t, el) => {
   $("#show").onclick = () => {
     $("#rcAns", el).style.display = "";
     const c = S.cards[w.id] || newCard(0);
-    const iv = q => { const x = Object.assign({}, c); grade(x, q); return x.ivl; };
+    const iv = q => { const x = Object.assign({}, c); grade(x, q, true); return x.ivl; };
     const lbl = d => d <= 1 ? "завтра" : d < 30 ? d + " дн" : Math.round(d / 30) + " мес";
     $("#ra").innerHTML = `<div class="grades">
       <button class="g0" data-q="0">Забыл<small>сегодня</small></button>
@@ -926,7 +1113,7 @@ T.recall = (t, el) => {
    Выключаются в настройках (S.set.newModes = false). */
 const gradeBox = (w, el, t) => {
   const c = S.cards[w.id] || newCard(0);
-  const iv = q => { const x = Object.assign({}, c); grade(x, q); return x.ivl; };
+  const iv = q => { const x = Object.assign({}, c); grade(x, q, true); return x.ivl; };
   const lbl = d => d <= 1 ? "завтра" : d < 30 ? d + " дн" : Math.round(d / 30) + " мес";
   return `<div class="grades">
     <button class="g0" data-q="0">Забыл<small>сегодня</small></button>
@@ -949,6 +1136,52 @@ T.recallRu = (t, el) => {
     $$(".grades button", el).forEach(b => b.onclick = () => { const q = +b.dataset.q; reviewGrade(w, q); next(q > 0); });
   };
 };
+/* Слово в разных контекстах: в повторении фраза с пропуском берётся то из
+   примера, то из текстов, книг и примеров других слов. Встречи со словом в
+   разных предложениях дают более прочное и гибкое знание (Bolger и др. 2008;
+   Johns, Dye & Jones 2016). Берём слова A2+ с одним значением, чтобы
+   предложение не уводило в другое значение слова. */
+let CTX = null;
+function ctxBase(tk) {
+  const t = tk.toLowerCase();
+  const tries = [t, t.replace(/ies$/, "y"), t.replace(/es$/, ""), t.replace(/s$/, ""), t.replace(/ied$/, "y"), t.replace(/ed$/, ""), t.replace(/d$/, ""),
+    t.replace(/ing$/, ""), t.replace(/ing$/, "e"), t.replace(/(.)\1(ed|ing)$/, "$1")];
+  for (const x of tries) { const w = x && x.length >= 3 ? DICT[x] : null; if (w && w.kind === "w") return w; }
+  return null;
+}
+function ctxIndex() {
+  if (CTX) return CTX;
+  CTX = {};
+  const add = (en, ru) => {
+    en = String(en).replace(/^—\s*/, ""); ru = String(ru || "").replace(/^—\s*/, "");
+    const n = en.split(/\s+/).length; if (n < 4 || n > 22 || !ru) return;
+    const re = /[A-Za-z]+/g, seen = new Set(); let m;
+    while ((m = re.exec(en))) {
+      if (m.index > 0 && /[A-Z]/.test(m[0][0])) continue; // имена и названия
+      const w = ctxBase(m[0]); if (!w || seen.has(w.id)) continue; seen.add(w.id);
+      if (lvIdx(w.lvl) < 2 || /;/.test(w.ru) || w.en.length < 4 || /\s/.test(w.en) || w.ex === en) continue;
+      const list = CTX[w.id] || (CTX[w.id] = []);
+      if (list.length < 8 && !list.some(x => x.en === en)) list.push({ en, ru, tok: m[0], at: m.index });
+    }
+  };
+  const texts = [...(typeof TEXTS !== "undefined" ? TEXTS : []), ...(typeof READING !== "undefined" ? READING : [])];
+  texts.forEach(t => t.pairs.forEach(([en, ru]) => add(en, ru)));
+  if (typeof BOOKS !== "undefined") BOOKS.forEach(b => b.chapters.forEach(ch => ch.pairs.forEach(([en, ru]) => add(en, ru))));
+  WORDS.forEach(x => { if (x.ex && x.exr) add(x.ex, x.exr); });
+  return CTX;
+}
+const ctxOn = () => S.set.ctxVar !== false;
+/* фраза для пропуска: пример слова или (в половине случаев) другой контекст */
+function clozeFor(w) {
+  const base = clozeOf(w), own = base && Object.assign({ en: w.ex, ru: w.exr || "" }, base);
+  const alts = ctxOn() && w && w.kind === "w" ? (ctxIndex()[w.id] || []) : [];
+  if (alts.length && (!base || Math.random() < 0.5)) {
+    const x = rnd(alts);
+    return { before: x.en.slice(0, x.at), ans: x.tok, after: x.en.slice(x.at + x.tok.length), en: x.en, ru: x.ru, alt: true };
+  }
+  return own;
+}
+const hasCloze = w => !!clozeOf(w) || (ctxOn() && w && w.kind === "w" && !!(ctxIndex()[w.id] || []).length);
 /* Найти слово в его примере: точное совпадение или форма (arrive → arrived). */
 function clozeOf(w) {
   if (!w || !w.ex || w.kind === "ch") return null;
@@ -966,13 +1199,13 @@ function clozeOf(w) {
   return null;
 }
 T.cloze = (t, el) => {
-  const w = t.w, cz = clozeOf(w);
+  const w = t.w, cz = t.cz || (t.cz = clozeFor(w));
   if (!cz) { t.type = "recallRu"; return T.recallRu(t, el); }
   const hint = cz.ans[0] + "_".repeat(Math.max(2, cz.ans.length - 1));
   el.innerHTML = `
-    <div class="q-label">Вставь слово во фразу</div>
+    <div class="q-label">Вставь слово во фразу${cz.alt ? " · новый контекст" : ""}</div>
     <div class="q-mid" style="line-height:1.5">${esc(cz.before)}<span style="color:var(--cyan);letter-spacing:2px">${esc(hint)}</span>${esc(cz.after)}</div>
-    <p class="small muted">${esc(w.exr || "")}</p>
+    <p class="small muted">${esc(cz.ru || "")}</p>
     <p class="small dim">Подсказка: ${esc(w.ru)}</p>
     <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="пропущенное слово…">
     <div class="actions"><button class="btn" id="idk">Не помню</button><button class="btn primary" id="chk">Проверить</button></div>
@@ -983,9 +1216,9 @@ T.cloze = (t, el) => {
     if (done) return; done = true;
     let r = v ? check(v, cz.ans) : 0, note = "";
     if (r < 2 && v && check(v, w.en) === 2 && cz.ans.toLowerCase() !== w.en.toLowerCase()) { r = 1; note = ` Здесь нужна форма «${cz.ans}».`; }
-    beep(r > 0); speak(w.ex);
+    beep(r > 0); speak(cz.en);
     feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
-      `<div class="row" style="align-items:flex-start"><div style="flex:1"><b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти." + esc(note) : esc(coach("wrong"))}</b><br>${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}</div>${speakBtn(w.ex)}</div>`);
+      `<div class="row" style="align-items:flex-start"><div style="flex:1"><b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти." + esc(note) : esc(coach("wrong"))}</b><br>${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}${note ? "" : spellNote(v, cz.ans, r)}</div>${speakBtn(cz.en)}</div>`);
     const q = r === 2 ? 2 : r === 1 ? 1 : 0;
     $(".actions", el).innerHTML = (q ? "" : `<button class="btn" id="typo">Я знал, опечатка</button>`) + `<button class="btn primary" id="nx">Дальше</button>`;
     $("#nx", el).onclick = () => { reviewGrade(w, q); next(q > 0); };
@@ -1001,7 +1234,7 @@ T.cloze = (t, el) => {
    проверяет приложение. Расписание повторений не меняется; слова с ошибкой
    в конце можно одной кнопкой вернуть в повторение. */
 T.verify = (t, el) => {
-  const w = t.w, c = ST.ctx, cz = clozeOf(w);
+  const w = t.w, c = ST.ctx, cz = t.cz !== undefined ? t.cz : (t.cz = clozeFor(w));
   const mode = t.mode || (t.mode = cz && Math.random() < 0.4 ? "cloze" : Math.random() < 0.5 ? "type" : "pick");
   const done = ok => {
     if (!ok) c.wrong.push(w);
@@ -1026,7 +1259,7 @@ T.verify = (t, el) => {
   const isCz = mode === "cloze" && cz;
   const target = isCz ? cz.ans : w.en;
   el.innerHTML = `<div class="q-label">Проверка · ${isCz ? "вставь слово во фразу" : "напиши по-английски"}</div>
-    ${isCz ? `<div class="q-mid" style="line-height:1.5">${esc(cz.before)}<span style="color:var(--cyan);letter-spacing:2px">${esc(cz.ans[0] + "_".repeat(Math.max(2, cz.ans.length - 1)))}</span>${esc(cz.after)}</div><p class="small muted">${esc(w.exr || "")}</p>`
+    ${isCz ? `<div class="q-mid" style="line-height:1.5">${esc(cz.before)}<span style="color:var(--cyan);letter-spacing:2px">${esc(cz.ans[0] + "_".repeat(Math.max(2, cz.ans.length - 1)))}</span>${esc(cz.after)}</div><p class="small muted">${esc(cz.ru || "")}</p>`
            : `<div class="q-mid">${esc(w.ru)}</div>${w.exr ? `<p class="small muted">Ситуация: ${esc(w.exr)}</p>` : ""}`}
     <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ответ…">
     <div class="actions"><button class="btn" id="idk">Не помню</button><button class="btn primary" id="chk">Проверить</button></div><div id="fbx"></div>`;
@@ -1037,9 +1270,9 @@ T.verify = (t, el) => {
     let r = v ? check(v, target) : 0;
     if (r < 2 && v && isCz && check(v, w.en) === 2) r = 1;
     const ok = r > 0;
-    beep(ok); speak(isCz ? w.ex : w.en);
+    beep(ok); speak(isCz ? cz.en : w.en);
     feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
-      `<b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — засчитано." : esc(coach("wrong"))}</b><br>${isCz ? `${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}` : `<b style="color:#a5f3fc">${esc(w.en)}</b> — ${esc(w.ru)}`}`);
+      `<b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — засчитано." : esc(coach("wrong"))}</b><br>${isCz ? `${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}` : `<b style="color:#a5f3fc">${esc(w.en)}</b> — ${esc(w.ru)}`}${spellNote(v, target, r)}`);
     $(".actions", el).innerHTML = (ok ? "" : `<button class="btn" id="typo">Я знал, опечатка</button>`) + `<button class="btn primary" id="nx">Дальше</button>`;
     $("#nx", el).onclick = () => done(ok);
     if ($("#typo", el)) $("#typo", el).onclick = () => done(true);
@@ -1232,7 +1465,7 @@ T.drill = (t, el) => {
     const ok = r > 0, note = S.notes && S.notes[w.id];
     beep(ok); speak(isCz ? w.ex : w.en);
     feedback($("#fbx", el), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
-      `<b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — засчитано." : esc(coach("wrong"))}</b><br>${isCz ? `${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}` : `<b style="color:#a5f3fc">${esc(w.en)}</b> — ${esc(w.ru)}`}${!ok && note ? `<br>💡 ${esc(note)}` : ""}`);
+      `<b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — засчитано." : esc(coach("wrong"))}</b><br>${isCz ? `${esc(cz.before)}<b style="color:#a5f3fc">${esc(cz.ans)}</b>${esc(cz.after)}` : `<b style="color:#a5f3fc">${esc(w.en)}</b> — ${esc(w.ru)}`}${spellNote(v, target, r)}${!ok && note ? `<br>💡 ${esc(note)}` : ""}`);
     $(".actions", el).innerHTML = (ok ? "" : `<button class="btn" id="typo">Я знал, опечатка</button>`) + `<button class="btn primary" id="nx">Дальше</button>`;
     $("#nx", el).onclick = () => result(ok);
     if ($("#typo", el)) $("#typo", el).onclick = () => result(true);
@@ -1603,11 +1836,28 @@ T.shadow = (t, el) => {
 };
 
 /* говорение на тему */
+/* Слова дня: что ты сегодня начал учить (или, если сегодня ничего, — последние в
+   обучении). Использовать новое слово в своей речи — самый сильный способ
+   перевести его в активный словарь (вынужденный вывод — Swain 1995;
+   задания с высокой вовлечённостью — Laufer & Hulstijn 2001). */
+function dayWords(n = 6) {
+  const t = today(), ids = Object.keys(S.cards).filter(id => itemById(id) && !S.cards[id].vt);
+  let list = ids.filter(id => S.cards[id].add === t);
+  if (list.length < 3) list = ids.filter(id => !isKnown(S.cards[id])).sort((a, b) => (S.cards[b].add || 0) - (S.cards[a].add || 0));
+  return list.slice(0, n).map(itemById);
+}
+function usedWords(text, ws) {
+  const low = " " + String(text).toLowerCase().replace(/[^a-z' ]+/g, " ") + " ", ids = new Set();
+  (String(text).match(/[A-Za-z']+/g) || []).forEach(tk => { const w = lookup(tk); if (w && w.id) ids.add(w.id); });
+  return ws.filter(w => ids.has(w.id) || low.includes(" " + w.en.toLowerCase().replace(/[^a-z' ]+/g, " ").trim() + " "));
+}
 T.speak = (t, el) => {
   const [topic, frame] = t.p; let sec = 0, words = 0;
+  const dw = t.dw || (t.dw = dayWords());
   el.innerHTML = `<div class="q-label">Говорение · 1–2 минуты</div>
     <div class="q-mid">${esc(topic)}</div>
     <div class="card"><div class="small muted">Опорные фразы — используй их:</div><div style="font-size:16px;margin-top:6px;color:#a5f3fc">${esc(frame)}</div></div>
+    ${dw.length ? `<div class="card"><div class="small muted">Вставь в рассказ 2–3 слова дня — так они переходят в активный словарь:</div><div class="row wrap" id="spW" style="gap:6px;margin-top:8px">${dw.map(w => `<span class="chip" data-wid="${esc(w.id)}" style="font-size:13px">${esc(w.en)} — ${esc(w.ru)}</span>`).join("")}</div></div>` : ""}
     <p class="small dim">Говори вслух, хоть с ошибками. Не знаешь слово — опиши другими словами. Цель — не остановиться.</p>
     <div class="timer" id="tm">0:00</div>
     ${srOn() ? `<button class="mic" id="mic">🎙</button>` : ""}
@@ -1615,12 +1865,19 @@ T.speak = (t, el) => {
     <textarea class="answer" id="wr" rows="4" style="margin-top:10px" placeholder="…или напиши 5–7 предложений"></textarea>
     <div class="actions"><button class="btn primary" id="nx" disabled>Готово</button></div>
     <p class="small dim" id="need" style="text-align:center">Кнопка откроется после 60 секунд речи или 25 слов</p>`;
+  let acc = "";
+  const markUsed = () => {
+    if (!dw.length) return 0;
+    const used = new Set(usedWords(acc + " " + ($("#tr") ? $("#tr").textContent : "") + " " + $("#wr").value, dw).map(w => w.id));
+    $$("#spW [data-wid]", el).forEach(c => { const on = used.has(c.dataset.wid); c.classList.toggle("ok", on); c.textContent = (on ? "✓ " : "") + c.textContent.replace(/^✓ /, ""); });
+    return used.size;
+  };
   ST.timer = setInterval(() => {
     sec++; $("#tm").textContent = Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
     const w2 = ($("#wr").value.trim().split(/\s+/).filter(Boolean).length);
     if (sec >= 60 || words + w2 >= 25) { $("#nx").disabled = false; $("#need").textContent = ""; }
+    if (sec % 2 === 0) markUsed();
   }, 1000);
-  let acc = "";
   if (srOn()) {
     const mic = $("#mic");
     mic.onclick = async () => {
@@ -1638,7 +1895,7 @@ T.speak = (t, el) => {
       if (!ST.rec) mic.classList.remove("on");
     };
   }
-  $("#nx").onclick = () => { S.speakN = (S.speakN || 0) + 1; next(true); };
+  $("#nx").onclick = () => { const u = markUsed(); S.speakN = (S.speakN || 0) + 1; if (u) toast(`Слов дня в речи: ${u} 💪`); next(true); };
 };
 
 /* ============================================================
@@ -1655,6 +1912,14 @@ const STEP_META = {
   speak:  { ico: "💬", name: "Говорение", why: "свободная речь" }
 };
 const STEPS = ["review", "new", "grammar", "listen", "shadow", "speak"];
+/* Умная норма: если накопилось много повторений, новых слов сегодня вдвое
+   меньше — иначе через неделю придёт лавина повторений и занятия бросаются.
+   Повторил долги — норма снова полная. Кнопки «+5 новых» норму не режут. */
+let EXTRA_NEW = false;
+function newNorm() {
+  const n = P().newPerDay;
+  return !EXTRA_NEW && S.set.smartCap !== false && dueIds().length > Math.max(40, 2 * n) ? Math.ceil(n / 2) : n;
+}
 const P = () => S.profile || { level: "A0", minutes: 45, plan: 6, newPerDay: 12, input: 30, start: today() };
 function stepsForToday() {
   const m = P().minutes, d = D();
@@ -1668,7 +1933,7 @@ function stepsForToday() {
 function stepInfo(k) {
   const d = D();
   if (k === "review") { const n = dueIds().length; return { sub: n ? `${n} ${plural(n, "карточка", "карточки", "карточек")} к повторению` : "на сегодня всё повторено", auto: !n }; }
-  if (k === "new") { const left = Math.max(0, P().newPerDay - d.nw); return { sub: left ? `${left} ${plural(left, "новое слово", "новых слова", "новых слов")}` : "дневная норма взята", auto: !left || !newQueue().length }; }
+  if (k === "new") { const norm = newNorm(), left = Math.max(0, norm - d.nw); return { sub: left ? `${left} ${plural(left, "новое слово", "новых слова", "новых слов")}${norm < P().newPerDay ? " · норма снижена: сначала повтори долги" : ""}` : "дневная норма взята", auto: !left || !newQueue().length }; }
   if (k === "grammar") { const g = currentTopic(); return { sub: g ? g.title : "все темы пройдены — повторение", auto: false }; }
   if (k === "fix") { const n = fixableWords().length; return { sub: n ? `${Math.min(n, DRILL_N)} ${plural(Math.min(n, DRILL_N), "слово", "слова", "слов")} из журнала ошибок${n > DRILL_N ? ` (всего ${n})` : ""}` : "ошибки на сегодня проработаны", auto: !n && !d.steps.fix }; }
   if (k === "gramrv") { const g = gramDueTopics(); return { sub: g.length ? g.slice(0, 3).map(x => x.title.split(" — ")[0].split(":")[0]).join(", ") : "пройденные темы в порядке", auto: !g.length && !d.steps.gramrv }; }
@@ -1710,14 +1975,14 @@ function startStep(k, chain) {
       const w = itemById(id), c = S.cards[id], r = Math.random();
       // доп. режимы идут вперемешку со старыми; без них — прежнее поведение
       if (S.set.newModes !== false) {
-        if (c.reps >= 1 && r < 0.25 && clozeOf(w)) return { type: "cloze", w, review: true };
+        if (c.reps >= 1 && r < 0.25 && hasCloze(w)) return { type: "cloze", w, review: true };
         if (r < 0.5) return { type: "recallRu", w, review: true };
       }
       return { type: c.reps >= 2 && Math.random() < 0.55 ? "type" : "recall", w, review: true };
     });
     runStage("Повторение", tasks, () => { done(); }, { chain, step: k });
   } else if (k === "new") {
-    const left = Math.max(1, P().newPerDay - D().nw);
+    const left = Math.max(1, newNorm() - D().nw);
     const ws = newQueue().slice(0, Math.min(left, 25));
     if (!ws.length) { done(); toast("Новые слова закончились — добавь свои во вкладке «Слова»"); return render(); }
     const tasks = [];
@@ -1727,7 +1992,7 @@ function startStep(k, chain) {
       shuffle(b).forEach(w => tasks.push({ type: "pick", w }));
       shuffle(b).forEach(w => tasks.push({ type: "type", w }));
     }
-    runStage("Новые слова", tasks, () => { if (D().nw >= P().newPerDay || !newQueue().length) done(); }, { chain, step: k });
+    runStage("Новые слова", tasks, () => { if (D().nw >= newNorm() || !newQueue().length) done(); }, { chain, step: k });
   } else if (k === "fix") {
     const l = fixableWords();
     if (!l.length) { done(); toast("Ошибки на сегодня проработаны"); return chain ? (nextUndone() ? startStep(nextUndone(), true) : closeStage()) : render(); }
@@ -1771,6 +2036,27 @@ function startGrammar(g, chain, asStep) {
   }, { chain, step: asStep ? "grammar" : null });
 }
 
+/* Смешанная практика: вопросы по всем пройденным темам вперемешку.
+   Каждый раз приходится решать, какое правило нужно, — на отложенных тестах
+   это даёт лучший результат, чем тренировка темы блоком (Rohrer & Taylor 2007;
+   для грамматики английского — Nakata & Suzuki 2019). */
+function startGramMix() {
+  const topics = GRAMMAR.filter(g => S.gram[g.id] && S.gram[g.id].runs);
+  if (topics.length < 2) return toast("Пройди хотя бы 2 темы — тогда будет что перемешивать");
+  const per = {}, pick = [];
+  for (const x of shuffle(topics.flatMap(g => g.mc.map(item => ({ g, item }))))) {
+    if ((per[x.g.id] || 0) >= 3) continue;
+    per[x.g.id] = (per[x.g.id] || 0) + 1; pick.push(x);
+    if (pick.length >= 12) break;
+  }
+  const stat = {};
+  const tasks = pick.map(x => ({ type: "mc", item: x.item, g: x.g, label: "🔀 Микс тем", onAnswer: ok => { const st = stat[x.g.id] || (stat[x.g.id] = { ok: 0, n: 0 }); st.n++; if (ok) st.ok++; } }));
+  runStage("Смешанная практика", tasks, () => ({
+    html: `<div class="card" style="margin-top:12px">${Object.keys(stat).map(id => { const g = GRAMMAR.find(x => x.id === id), st = stat[id];
+      return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>${st.ok === st.n ? "✅" : "🔧"}</span><div style="flex:1"><b>${esc(g.title)}</b><div class="small muted">${st.ok} из ${st.n}</div></div></div>`; }).join("")}
+      <div class="small muted" style="margin-top:8px;line-height:1.5">Ошибки ушли в журнал — темы с ошибками вернутся в повторе грамматики.</div></div>`
+  }), {});
+}
 /* Повтор пройденных тем: сначала вопросы, где ошибался, потом новые вопросы темы.
    80% и выше — следующий повтор позже (1 → 3 → 7 → 14 → 30 → 60 дней), меньше — завтра снова. */
 function startGramReview(topics, chain, asStep) {
@@ -1971,6 +2257,26 @@ function render() {
   else renderProg();
 }
 
+/* План «когда и где»: заранее решить, в какой момент и где занимаешься
+   («в 8:00 в метро — открываю Лингво»). Такие планы-намерения заметно
+   повышают выполнение задуманного (Gollwitzer & Sheeran 2006, обзор 94 исследований). */
+function planCard() {
+  if (S.plan) return `<button class="li" id="planEd" style="margin:2px 0 6px;padding:10px 12px"><span style="font-size:18px">📍</span><div class="lb"><div class="lt" style="font-size:14px">${esc(S.plan)}</div><div class="ls">мой план: когда и где · изменить</div></div></button>`;
+  if (S.planSkip && today() - S.planSkip < 7) return "";
+  return `<div class="card" style="border-color:rgba(34,211,238,.4)"><b>📍 Реши заранее: когда и где ты занимаешься</b>
+    <p class="small muted" style="line-height:1.55;margin:6px 0 10px">Формула «если …, то …»: «В 8:00 в метро — открываю Лингво и делаю повторение». С таким планом задуманное выполняют заметно чаще, чем просто с целью «заниматься каждый день».</p>
+    <div class="field" style="margin-bottom:0"><input id="planIn" placeholder="Когда, где и что я делаю" autocomplete="off"></div>
+    <div class="grid2" style="margin-top:8px"><button class="btn sm primary" id="planSave">Сохранить</button><button class="btn sm ghost" id="planLater">Позже</button></div></div>`;
+}
+/* Минимум на 5 минут: в день без времени короткое занятие лучше пропуска —
+   привычка держится на регулярности, а не на длине занятий (Lally и др. 2010). */
+function startQuick() {
+  const due = dueIds();
+  if (due.length) return runStage("⚡ 5 минут · повторение", shuffle(due).slice(0, 15).map(id => ({ type: Math.random() < 0.5 ? "recallRu" : "recall", w: itemById(id), review: true })), null, {});
+  const l = [...weakWords(), ...learningWords()];
+  if (l.length) return startDrill(l.slice(0, 5), []);
+  const keep = MARA_N; MARA_N = 20; startMarathon([...WORDS, ...S.own], "5 минут"); MARA_N = keep;
+}
 function renderToday() {
   const el = $("#v-today");
   if (!S.profile) {
@@ -2004,9 +2310,11 @@ function renderToday() {
           <div class="small muted" style="margin-top:6px">Сегодня: ${mins} мин занятий${d.inp ? ` + ${d.inp} мин погружения` : ""} · цель ${P().minutes} мин</div>
         </div>
       </div>
-      ${nx ? `<button class="btn primary big wide" id="start" style="margin-top:14px">${done ? "Продолжить" : "Начать тренировку"} → ${STEP_META[nx].ico} ${STEP_META[nx].name}</button>`
+      ${nx ? `<button class="btn primary big wide" id="start" style="margin-top:14px">${done ? "Продолжить" : "Начать тренировку"} → ${STEP_META[nx].ico} ${STEP_META[nx].name}</button>
+              <button class="btn ghost wide sm" id="quick" style="margin-top:8px">⚡ Нет времени? Минимум на 5 минут</button>`
            : `<button class="btn green big wide" id="extra" style="margin-top:14px">План закрыт ✅ Ещё 5 новых слов</button>`}
     </div>
+    ${planCard()}
     <div class="sect-title">План на сегодня</div>
     ${steps.map(k => { const i = stepInfo(k), dn = stepDone(k); return `<button class="step ${dn ? "done" : ""}" data-k="${k}">
       <div class="si">${STEP_META[k].ico}</div><div class="sb"><div class="st">${STEP_META[k].name}</div><div class="ss">${esc(i.sub)}</div></div>
@@ -2026,7 +2334,18 @@ function renderToday() {
     <div class="sect-title">Путь</div>
     ${roadMini()}`;
   if ($("#start")) $("#start").onclick = () => startStep(nx, true);
-  if ($("#extra")) $("#extra").onclick = () => { const keep = S.profile.newPerDay; S.profile.newPerDay = D().nw + 5; startStep("new", false); S.profile.newPerDay = keep; };
+  if ($("#quick")) $("#quick").onclick = startQuick;
+  if ($("#planSave")) $("#planSave").onclick = () => { const v = $("#planIn").value.trim(); if (!v) return toast("Напиши, когда и где"); S.plan = v.slice(0, 140); save(); render(); toast("План сохранён 📍"); };
+  if ($("#planLater")) $("#planLater").onclick = () => { S.planSkip = today(); save(); render(); };
+  if ($("#planEd")) $("#planEd").onclick = () => {
+    openSheet(`<div class="sheet-title">📍 Когда и где я занимаюсь</div>
+      <p class="small muted" style="margin-top:-6px;line-height:1.5">Конкретно: время или событие, место и что делаешь. Например: «После ужина на диване — повторение и новые слова».</p>
+      <div class="field"><input id="planIn2" value="${esc(S.plan)}" autocomplete="off"></div>
+      <div class="grid2"><button class="btn primary" id="planOk">Сохранить</button><button class="btn ghost" id="planDel">Удалить</button></div>`);
+    $("#planOk").onclick = () => { const v = $("#planIn2").value.trim(); if (v) S.plan = v.slice(0, 140); else delete S.plan; save(); closeSheet(); render(); };
+    $("#planDel").onclick = () => { delete S.plan; S.planSkip = today(); save(); closeSheet(); render(); };
+  };
+  if ($("#extra")) $("#extra").onclick = () => { const keep = S.profile.newPerDay; S.profile.newPerDay = D().nw + 5; EXTRA_NEW = true; startStep("new", false); EXTRA_NEW = false; S.profile.newPerDay = keep; };
   $$(".step", el).forEach(b => b.onclick = () => startStep(b.dataset.k, false));
   $("#maraT").onclick = maraSheet;
   if ($("#drillT")) $("#drillT").onclick = () => { const l = [...weakWords(), ...learningWords()]; startDrill(l.slice(0, DRILL_N), l.slice(DRILL_N)); };
@@ -2077,7 +2396,7 @@ function renderWords() {
   $("#verify").onclick = verifySheet;
   $("#drill").onclick = drillSheet;
   $("#errJ").onclick = errSheet;
-  $("#nw").onclick = () => { const keep = P().newPerDay; S.profile && (S.profile.newPerDay = D().nw + 5); startStep("new", false); S.profile && (S.profile.newPerDay = keep); };
+  $("#nw").onclick = () => { const keep = P().newPerDay; S.profile && (S.profile.newPerDay = D().nw + 5); EXTRA_NEW = true; startStep("new", false); EXTRA_NEW = false; S.profile && (S.profile.newPerDay = keep); };
   $("#add").onclick = () => addWordSheet();
   $("#imp").onclick = importSheet;
   $("#q").oninput = e => { WF.q = e.target.value; drawWordList(); };
@@ -2125,7 +2444,10 @@ function wordSheet(w) {
   const fin = m => { save(); closeSheet(); if (VIEW === "words") drawWordList(); toast(m); };
   if ($("#wLearn")) $("#wLearn").onclick = () => { S.cards[w.id] = newCard(0); fin("Добавлено в повторение на сегодня"); };
   if ($("#wReset")) $("#wReset").onclick = () => { S.cards[w.id] = newCard(0); fin("Сброшено"); };
-  if ($("#wKnown")) $("#wKnown").onclick = () => { const c2 = newCard(30); c2.ivl = 30; c2.reps = 2; S.cards[w.id] = c2; fin("Отмечено как известное — проверим через месяц"); };
+  if ($("#wKnown")) $("#wKnown").onclick = () => {
+    if (S.set.knowCheck === false) { const c2 = newCard(30); c2.ivl = 30; c2.reps = 2; S.cards[w.id] = c2; return fin("Отмечено как известное — проверим через месяц"); }
+    closeSheet(); runStage("Проверка «Уже знаю»", [{ type: "knowChk", w, solo: true }], null, {});
+  };
   if ($("#wDel")) $("#wDel").onclick = () => { S.own = S.own.filter(o => o.id !== w.id); delete S.cards[w.id]; fin("Удалено"); };
 }
 function addOwn(en, ru, ex, exr) {
@@ -2168,7 +2490,8 @@ function renderGram() {
   const dueG = gramDueTopics(), gErr = errList("g");
   let html = `<div class="card"><div class="small muted" style="line-height:1.55">Одна тема в день: правило на пальцах → выбор формы → сборка и перевод фраз. Тема засчитывается при 80% верных и потом <b style="color:var(--text)">возвращается на повтор</b> через 1 → 3 → 7 → 14 → 30 → 60 дней — вместе с вопросами, где ты ошибался.</div>
     ${dueG.length ? `<button class="btn primary wide" id="gRv" style="margin-top:10px">↩️ Повторить пройденное · ${dueG.length} ${plural(dueG.length, "тема", "темы", "тем")}</button>` : ""}
-    ${gErr.length ? `<button class="btn wide sm" id="gErr" style="margin-top:8px">🔧 Ошибки в грамматике · ${gErr.length}</button>` : ""}</div>`;
+    ${gErr.length ? `<button class="btn wide sm" id="gErr" style="margin-top:8px">🔧 Ошибки в грамматике · ${gErr.length}</button>` : ""}
+    ${(() => { const n = GRAMMAR.filter(g => S.gram[g.id] && S.gram[g.id].runs).length; return n >= 2 ? `<button class="btn wide sm" id="gMix" style="margin-top:8px">🔀 Смешанная практика · все пройденные темы (${n})</button>` : ""; })()}</div>`;
   for (const L of ["A1", "A2", "B1", "B2"]) {
     const list = GRAMMAR.filter(g => g.lvl === L), dn = list.filter(g => S.gram[g.id] && S.gram[g.id].done).length;
     html += `<div class="sect-title">${L} · ${dn}/${list.length}</div>`;
@@ -2179,6 +2502,7 @@ function renderGram() {
   el.innerHTML = html;
   if ($("#gRv")) $("#gRv").onclick = () => startGramReview(dueG.slice(0, 3), false, false);
   if ($("#gErr")) $("#gErr").onclick = errSheet;
+  if ($("#gMix")) $("#gMix").onclick = startGramMix;
   $$("[data-g]", el).forEach(b => b.onclick = () => {
     const g = GRAMMAR.find(x => x.id === b.dataset.g);
     openSheet(`<div class="row"><span class="lvl ${g.lvl}">${g.lvl}</span><div class="sheet-title" style="margin:0">${esc(g.title)}</div></div>
@@ -2188,6 +2512,8 @@ function renderGram() {
   });
 }
 
+const COV_HINT = `📗 98%+ знакомых слов — читается легко · 📘 95–97% — в самый раз, словарь растёт сам · 📙 90–94% — сначала выучи незнакомые слова (кнопка в тексте) · 📕 меньше 90% — пока рано.`;
+const covLabel = t => { const cv = textCoverage(t), ci = covInfo(cv.pct); return `${ci.e} ${cv.pct}% знакомых`; };
 let RT = "texts";
 let RK = "all";
 function renderRead() {
@@ -2216,7 +2542,8 @@ function renderRead() {
         <div class="small muted" style="margin-top:6px">${esc(q.ru)}</div><div class="small dim" style="margin-top:4px">— ${esc(q.src)}</div>
         <div class="row" style="gap:6px;margin-top:10px">${saved ? `<span class="chip ok">в моих цитатах</span>` : `<button class="btn sm" data-qsave="${i}">❝ В мои цитаты</button>`}<button class="btn sm" data-qlearnf="${i}">🧠 Учить</button></div></div>`; }).join("");
   } else if (RT === "reading") {
-    html += `<div class="card"><div class="small muted" style="line-height:1.55">Рассказы, выжимки известных книг, статьи и диалоги. Прочитай целиком, потом сделай <b style="color:var(--text)">✍️ Перевод</b>: переводишь фразы сам, а приложение показывает эталон. Можно и наоборот — с русского на английский. Тап по слову — перевод.</div></div>`;
+    html += `<div class="card"><div class="small muted" style="line-height:1.55">Рассказы, выжимки известных книг, статьи и диалоги. Прочитай целиком, потом сделай <b style="color:var(--text)">✍️ Перевод</b>: переводишь фразы сам, а приложение показывает эталон. Можно и наоборот — с русского на английский. Тап по слову — перевод.</div>
+      <div class="small muted" style="line-height:1.55;margin-top:8px">${COV_HINT}</div></div>`;
     const kinds = [["all", "Все"], ["story", "📖 Рассказы"], ["sum", "📝 Выжимки"], ["art", "📰 Статьи"], ["dlg", "💬 Диалоги"]];
     html += `<div class="row wrap" id="rk" style="gap:6px;margin-bottom:6px">${kinds.map(([k, n]) => `<button class="chip${RK === k ? " ok" : ""}" data-rk="${k}" style="font-size:13px;padding:6px 10px">${n} · ${k === "all" ? READING.length : READING.filter(t => t.kind === k).length}</button>`).join("")}</div>`;
     if (RK === "sum") html += `<div class="small muted" style="margin:6px 2px 4px;line-height:1.5">Выжимки — суть известных книг в 8–10 фразах: сюжет и главная мысль. Хороший способ узнать книгу и заодно выучить слова.</div>`;
@@ -2225,14 +2552,15 @@ function renderRead() {
       html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
       html += list.map(t => { const tr = (S.trans || {})[t.id];
         return `<button class="li" data-t="${t.id}"><span style="font-size:18px">${tr ? "✅" : S.read[t.id] ? "📖" : "📚"}</span>
-        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.src ? esc(t.src) + " · " : ""}${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]}` : ""}${tr ? ` · перевод ${tr.best}%` : ""}</div></div><span class="dim">›</span></button>`; }).join("");
+        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.src ? esc(t.src) + " · " : ""}${t.pairs.length} фраз · ${covLabel(t)}${S.read[t.id] ? ` · прочитано ${S.read[t.id]}` : ""}${tr ? ` · перевод ${tr.best}%` : ""}</div></div><span class="dim">›</span></button>`; }).join("");
     }
   } else if (RT === "texts") {
-    html += `<div class="card"><div class="small muted">Понятный ввод: читай и слушай тексты своего уровня. Тап по слову — перевод и «в колоду», 🔊 — озвучка фразы. Слушай каждый текст несколько раз, потом повторяй вслух.</div></div>`;
+    html += `<div class="card"><div class="small muted">Понятный ввод: читай и слушай тексты своего уровня. Тап по слову — перевод и «в колоду», 🔊 — озвучка фразы. Слушай каждый текст несколько раз, потом повторяй вслух.</div>
+      <div class="small muted" style="line-height:1.55;margin-top:8px">${COV_HINT}</div></div>`;
     for (const L of ["A1", "A2", "B1", "B2"]) {
       html += `<div class="sect-title">${L}${Math.abs(lvIdx(L) - lvl) <= 1 ? " · твой уровень" : ""}</div>`;
       html += TEXTS.filter(t => t.lvl === L).map(t => `<button class="li" data-t="${t.id}"><span style="font-size:18px">${S.read[t.id] ? "✅" : "📖"}</span>
-        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.pairs.length} фраз${S.read[t.id] ? ` · прочитано ${S.read[t.id]} раз` : ""}</div></div><span class="dim">›</span></button>`).join("");
+        <div class="lb"><div class="lt">${esc(t.title)}</div><div class="ls">${t.pairs.length} фраз · ${covLabel(t)}${S.read[t.id] ? ` · прочитано ${S.read[t.id]} раз` : ""}</div></div><span class="dim">›</span></button>`).join("");
     }
   } else {
     const intro = {
@@ -2300,8 +2628,64 @@ function lookup(word) {
   if (FUNC_RU[f]) return { en: f, ru: FUNC_RU[f], func: true };
   return null;
 }
+/* ---------- Сколько слов текста ты знаешь ----------
+   Текст понятен без словаря и читается с удовольствием, когда знакомы 98%
+   слов; 95% — нижняя граница, когда смысл ещё ясен (Hu & Nation 2000;
+   Laufer & Ravenhorst-Kalovski 2010). Знакомыми считаем служебные слова и
+   всё, что ты уже учишь или отметил; имена не считаем. */
+const knownForCov = w => {
+  if (w.lvl && lvIdx(w.lvl) < clamp(lvIdx(P().level), 1, 4)) return true; // уровни ниже твоего тест засчитал — их нет в курсе
+  const c = S.cards[w.id]; return !!c && (c.reps > 0 || c.ivl > 0 || !!c.last || !!c.vt || c.s > 0);
+};
+const COV_CACHE = {};
+function textCoverage(tx) {
+  const key = Object.keys(S.cards).length + ":" + today() + ":" + D().xp, hit = COV_CACHE[tx.id];
+  if (hit && hit.key === key) return hit.v;
+  let total = 0, known = 0; const unk = new Map(), other = new Set();
+  for (const [en] of tx.pairs) {
+    const toks = String(en).replace(/^—\s*/, "").match(/[A-Za-z]+(?:['’][A-Za-z]+)?/g) || [];
+    toks.forEach((tk, i) => {
+      if (i > 0 && /^[A-Z]/.test(tk) && tk !== "I") return; // имена и названия
+      total++;
+      const w = lookup(tk);
+      if (w && (w.func || knownForCov(w))) { known++; return; }
+      if (w) { const x = unk.get(w.id) || { w, n: 0 }; x.n++; unk.set(w.id, x); return; }
+      other.add(tk.toLowerCase());
+    });
+  }
+  const v = { pct: total ? Math.floor(known / total * 100) : 100, total, unknown: [...unk.values()].sort((a, b) => b.n - a.n || lvIdx(a.w.lvl) - lvIdx(b.w.lvl)).map(x => x.w), other: [...other] };
+  COV_CACHE[tx.id] = { key, v };
+  return v;
+}
+const covInfo = p => p >= 98 ? { e: "📗", t: "легко" } : p >= 95 ? { e: "📘", t: "в самый раз" } : p >= 90 ? { e: "📙", t: "с усилием" } : { e: "📕", t: "пока сложно" };
+/* выучить слова сразу — как в «Новых словах»: знакомство → выбор → написать */
+function startLearnWords(ws, title, after) {
+  const tasks = [];
+  for (let i = 0; i < ws.length; i += 5) {
+    const b = ws.slice(i, i + 5);
+    b.forEach(w => tasks.push({ type: "intro", w }));
+    shuffle(b).forEach(w => tasks.push({ type: "pick", w }));
+    shuffle(b).forEach(w => tasks.push({ type: "type", w }));
+  }
+  runStage(title, tasks, after || null, {});
+}
+function unknownWordsSheet(tx) {
+  const cv = textCoverage(tx), ci = covInfo(cv.pct), list = cv.unknown, first = list.slice(0, 10);
+  openSheet(`<div class="sheet-title">📒 Незнакомые слова текста</div>
+    <p class="small muted" style="margin-top:-6px;line-height:1.55">${ci.e} Знакомо <b style="color:var(--text)">${cv.pct}%</b> слов. Текст читается легко при 98%, нормально — при 95%. Выучи главные незнакомые слова перед чтением — так и текст поймёшь, и слова запомнишь быстрее: в тексте ты сразу встретишь их снова.</p>
+    ${first.length ? `<button class="btn primary wide" id="uLearn">🎓 Выучить перед чтением: ${first.length} ${plural(first.length, "слово", "слова", "слов")}</button>` : ""}
+    ${list.map(w => `<div class="li" style="cursor:default"><div class="lb"><div class="lt">${esc(w.en)} <span class="lvl ${w.lvl || ""}" style="font-size:10px">${esc(w.lvl || "")}</span></div><div class="ls">${esc(w.ru)}</div></div>${speakBtn(w.en)}${S.cards[w.id] ? `<span class="chip learn">в колоде</span>` : ""}</div>`).join("") || `<div class="empty">Все слова из словаря тебе знакомы 💪</div>`}
+    ${cv.other.length ? `<p class="small dim" style="margin-top:10px;line-height:1.5">Нет в словаре приложения (переводятся по тапу на фразу${tx.gloss ? " или в «Слова главы»" : ""}): ${esc(cv.other.slice(0, 30).join(", "))}${cv.other.length > 30 ? "…" : ""}</p>` : ""}`);
+  if ($("#uLearn")) $("#uLearn").onclick = () => {
+    closeSheet();
+    startLearnWords(first, "Слова перед чтением", () => ({
+      html: `<div class="card" style="margin-top:12px;text-align:center"><div class="small muted">Теперь эти слова встретятся тебе в тексте — это лучший момент их закрепить.</div></div>`,
+      bind: () => { $("#fClose").insertAdjacentHTML("beforebegin", `<button class="btn primary big wide" id="lwRead">📖 Читать «${esc(tx.title)}»</button>`); $("#lwRead").onclick = () => openReader(tx); }
+    }));
+  };
+}
 T.reader = (t, el) => {
-  const tx = t.tx;
+  const tx = t.tx, cv = textCoverage(tx), ci = covInfo(cv.pct);
   el.innerHTML = `<div class="row" style="margin-bottom:6px"><span class="lvl ${tx.lvl}">${tx.lvl}</span><div class="q-mid" style="margin:0;flex:1">${esc(tx.title)}</div></div>
     <div class="row wrap" style="gap:6px;margin-bottom:6px">
       <button class="btn sm" id="rAll">▶ Слушать всё</button><button class="btn sm" id="rTr">🇷🇺 Перевод</button>
@@ -2309,6 +2693,7 @@ T.reader = (t, el) => {
       <button class="btn sm" id="rTrRu">📝 Перевод EN→RU</button><button class="btn sm" id="rTrEn">🔁 Перевод RU→EN</button>
       ${tx.gloss ? `<button class="btn sm" id="rGl">📒 Слова главы</button>` : ""}</div>
     ${tx.book ? `<div class="small dim" style="margin-bottom:4px">${esc(tx.book.author)}</div>` : ""}
+    <button class="li" id="rCov" style="margin:4px 0 8px;padding:10px 12px"><span style="font-size:20px">${ci.e}</span><div class="lb"><div class="lt" style="font-size:14px">Знакомых слов: ${cv.pct}% · ${ci.t}</div><div class="ls">${cv.unknown.length ? `${cv.unknown.length} ${plural(cv.unknown.length, "незнакомое слово", "незнакомых слова", "незнакомых слов")} — посмотреть и выучить перед чтением` : "все слова из словаря знакомы"}</div></div><span class="dim">›</span></button>
     <div class="reader" id="rd">${tx.pairs.map(([en, ru], k) => `<div class="sent" data-k="${k}"><div class="en">${en.split(/(\s+)/).map(p => /\s+/.test(p) ? p : `<span>${esc(p)}</span>`).join("")}</div>
       <div class="tr">${esc(ru)}</div><div class="tools"><button data-say="${esc(en.replace(/^—\s*/, ""))}">🔊</button><button data-tr>перевод</button><button data-say="${esc(en.replace(/^—\s*/, ""))}" data-rate="0.65">🐢</button><button data-q="${k}" title="В цитаты">❝</button></div></div>`).join("")}</div>
     <button class="btn primary big wide" id="rDone" style="margin-top:16px">Прочитал ✓</button>
@@ -2316,6 +2701,7 @@ T.reader = (t, el) => {
   $$(".sent [data-tr]", el).forEach(b => b.onclick = () => b.closest(".sent").classList.toggle("show"));
   $$(".sent [data-q]", el).forEach(b => b.onclick = () => { const [en, ru] = tx.pairs[+b.dataset.q]; saveQuote(en, ru, tx.book ? `${tx.book.author.split(" · ")[0]}, «${tx.book.title}»` : tx.title); });
   if ($("#rGl")) $("#rGl").onclick = () => chapterWordsSheet(tx);
+  $("#rCov").onclick = () => unknownWordsSheet(tx);
   if ($("#rNext")) $("#rNext").onclick = () => { $("#pop").classList.remove("on"); S.read[tx.id] = (S.read[tx.id] || 0) + 1; D().xp += 5; save(); openReader(chapterTx(tx.book, tx.ch + 1)); };
   $("#rTr").onclick = () => $("#rd").classList.toggle("showall");
   let playing = false;
@@ -2393,13 +2779,14 @@ function renderProg() {
   const wkGram = GRAMMAR.filter(g => { const s2 = S.gram[g.id]; return s2 && ((s2.last || 0) >= mon || (s2.rv && (s2.rv.last || 0) >= mon)); }).length;
   let html = `<details class="card howto" ${S.howtoSeen ? "" : "open"}><summary>📘 Как устроено обучение <span class="dim small">(нажми, чтобы ${S.howtoSeen ? "открыть" : "свернуть"})</span></summary>
     <ol>
-      <li><b>Новое слово</b>: знакомство → выбрать перевод → написать самому.</li>
-      <li><b>Повторение по графику</b>: через 1 → 3 → ~7 → ~18 → ~45 дней. Помнишь — интервал растёт, забыл — слово начинает сначала.</li>
+      <li><b>Новое слово</b>${S.set.pretest !== false ? ": сначала угадай значение → перевод и пример" : ": знакомство"} → выбрать перевод → написать самому. Слова одной темы приходят в разных пачках, чтобы не путались. «Уже знаю» засчитывается после проверки.</li>
+      <li><b>Повторение по графику</b>: ${useFsrs() ? "алгоритм FSRS подбирает интервал под каждое слово — обычно завтра → ~6 дней → ~3 недели → ~2 месяца. Помнишь — интервал растёт, забыл — слово вернётся завтра, а дальше интервалы короче" : "через 1 → 3 → ~7 → ~18 → ~45 дней. Помнишь — интервал растёт, забыл — слово начинает сначала"}.</li>
       <li><b>Ступени слова</b>: 🆕 новое → 🌱 знакомлюсь → 🌿 учу → 🌳 закрепляю → ✅ знаю (3+ недели) → 🏆 выучено (2+ месяца).</li>
       <li><b>Ошибка → журнал ошибок.</b> Она исправлена, когда ответишь верно <b>в два разных дня после ошибки</b> — так проверяется долгая память.</li>
       <li><b>Работа над ошибками</b> — шаг плана: слова из журнала проходишь по 3 ступеням (узнать → выбрать → написать).</li>
       <li><b>Грамматика</b>: тема засчитана при 80% → возвращается на повтор через 1 → 3 → 7 → 14 → 30 → 60 дней вместе с вопросами, где ошибался.</li>
-      <li><b>План дня по шагам</b>: сначала повторение и ошибки, потом новое.</li>
+      <li><b>План дня по шагам</b>: сначала повторение и ошибки, потом новое. Много долгов по повторению — новых слов вдвое меньше.</li>
+      <li><b>Чтение</b>: у каждого текста видно, сколько слов знакомо. Лучше всего — 95–98%; незнакомые слова можно выучить перед чтением.</li>
     </ol></details>`;
   if (p) {
     const base = LEVELS[p.startLevel || p.level].hours, h = Math.max(LEVELS[p.level].hours, base + t.hours), cur = levelByHours(h);
@@ -2450,7 +2837,20 @@ function renderProg() {
         return `<div class="rm ${st}"><div class="rt">Месяц ${m.m} · <span class="lvl ${m.l}">${m.l}</span></div><div class="rs">${fmtDate(dd)} · ~${Math.round(m.h)} ч · ${esc(topics)}</div></div>`; }).join("")}
     </div><div class="small dim" style="line-height:1.5">Это прогноз: сколько часов накопится к каждому месяцу, если заниматься ${p.minutes} мин в приложении и ${p.input} мин погружения в день. Уровень по часам — примерный (A2 ≈ 200 ч, B1 ≈ 400 ч, B2 ≈ 600 ч). Точнее — тест уровня раз в месяц.</div></div>`;
   }
+  const tg = (k, name, sub) => `<div class="row" style="margin-bottom:12px"><span class="small">${name}<br><span class="dim">${sub}</span></span><button class="btn sm sp" data-tg="${k}">${S.set[k] === false ? "Выкл" : "Вкл"}</button></div>`;
   html += `<div class="sect-title">Методики внутри</div><div class="card">${METHODS.map(m => `<div class="method"><div class="mi">${m[0]}</div><div><b>${esc(m[1])}</b><p>${esc(m[2])}</p></div></div>`).join("")}</div>
+    <div class="sect-title">Методики — переключатели</div>
+    <div class="card">
+      <div class="field"><label>Алгоритм повторений</label><div class="seg" id="sSrs"><button data-v="fsrs" class="${useFsrs() ? "on" : ""}">FSRS · новый</button><button data-v="sm2" class="${useFsrs() ? "" : "on"}">SM-2 · классика</button></div>
+        <div class="small dim" style="margin-top:6px;line-height:1.5">FSRS — современный алгоритм (он же в Anki): модель памяти подбирает интервал под каждое слово и учитывает пропуски. При той же памяти — меньше повторений. SM-2 — прежнее расписание.</div></div>
+      ${useFsrs() ? `<div class="field"><label>Сколько помнить к повторению</label><div class="seg" id="sRet">${[0.85, 0.9, 0.95].map(r => `<button data-r="${r}" class="${retention() === r ? "on" : ""}">${Math.round(r * 100)}%</button>`).join("")}</div>
+        <div class="small dim" style="margin-top:6px;line-height:1.5">90% — оптимум. 95% — повторений почти вдвое больше, зато надёжнее (например, перед экзаменом). 85% — меньше повторений, но и забываний больше.</div></div>` : ""}
+      ${tg("pretest", "Сначала угадать значение", "новое слово — без перевода, пока не нажмёшь")}
+      ${tg("knowCheck", "Проверять «Уже знаю»", "слово засчитывается, только если сам его напишешь")}
+      ${tg("mixTopics", "Новые слова вперемешку по темам", "похожие слова не попадают в одну пачку")}
+      ${tg("ctxVar", "Слово в разных контекстах", "фразы для пропуска — и из текстов приложения")}
+      ${tg("smartCap", "Умная норма новых слов", "при долгах по повторению новых вдвое меньше")}
+    </div>
     <div class="sect-title">Настройки</div>
     <div class="card">
       <div class="field"><label>Тренер</label><div class="seg" id="sCoach"><button data-c="hard" class="${S.set.coach !== "soft" ? "on" : ""}">😤 Жёсткий</button><button data-c="soft" class="${S.set.coach === "soft" ? "on" : ""}">🙂 Мягкий</button></div></div>
@@ -2483,6 +2883,9 @@ function renderProg() {
   $("#sRate").onchange = () => speak("This is how fast I speak.");
   if ($("#sSr")) $("#sSr").onclick = () => { S.set.srOff = !S.set.srOff; save(); render(); };
   $("#sNm").onclick = () => { S.set.newModes = S.set.newModes === false; save(); render(); };
+  $$("[data-tg]", el).forEach(b => b.onclick = () => { const k = b.dataset.tg; S.set[k] = S.set[k] === false; CUR_CACHE.key = ""; save(); render(); });
+  $$("#sSrs button", el).forEach(b => b.onclick = () => { S.set.srs = b.dataset.v === "sm2" ? "sm2" : "fsrs"; save(); render(); toast(b.dataset.v === "sm2" ? "Повторения по SM-2" : "Повторения по FSRS"); });
+  $$("#sRet button", el).forEach(b => b.onclick = () => { S.set.ret = +b.dataset.r; save(); render(); });
   $("#sSfx").onclick = () => { S.set.sfx = !S.set.sfx; save(); render(); };
   $("#sTest").onclick = startTest;
   $("#sExp").onclick = () => {
@@ -2563,7 +2966,8 @@ function startMarathon(list, title) {
       bind: () => {
         if ($("#mAdd")) $("#mAdd").onclick = () => {
           let n = 0;
-          for (const w of wr) { const c = S.cards[w.id]; if (!c) { S.cards[w.id] = newCard(0); n++; } else if (c.due > today()) { c.due = today(); n++; } }
+          // не узнал слово в марафоне — значит, забыл: так и записываем в расписание, и повторяем сегодня
+          for (const w of wr) { const c = S.cards[w.id]; if (!c) { S.cards[w.id] = newCard(0); n++; } else if (c.last !== today()) { grade(c, 0); c.due = today(); n++; } }
           save(); toast(n ? `В повторении на сегодня: ${n}` : "Они уже в повторении"); $("#mAdd").disabled = true;
         };
         if ($("#mAgain")) $("#mAgain").onclick = () => { const keep = MARA_N; MARA_N = 0; startMarathon(wr.slice(), "ошибки"); MARA_N = keep; };
@@ -2627,7 +3031,8 @@ How to talk:
 - Write the reply in English only, 1-3 short sentences, using words and grammar the learner can understand at their level. For A1 use very simple words and short sentences.
 - Stay in your role and keep the conversation going: end with a question or something the learner can answer.
 - If the learner writes in Russian or mixes languages, show them how to say it in English and continue.
-
+${(() => { const seen = new Set(), focus = [...weakWords(), ...dayWords(8), ...learningWords()].filter(w => w && !seen.has(w.id) && seen.add(w.id)).slice(0, 8);
+  return focus.length ? `- The learner is learning these words right now: ${focus.map(w => `${w.en} (${w.ru})`).join(", ")}. Use some of them naturally in your replies and now and then ask a question that invites the learner to use one of them. Don't list them and don't say that you are doing this.\n` : ""; })()}
 After the reply, always add these three sections, each starting with its marker on its own line:
 ###RU
 A natural Russian translation of your reply.
