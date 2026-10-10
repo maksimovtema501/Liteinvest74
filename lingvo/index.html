@@ -330,6 +330,7 @@ details.howto summary::-webkit-details-marker{display:none}
 <script src="words-ext.js"></script>
 <script src="words-ext2.js"></script>
 <script src="course.js"></script>
+<script src="grammar-ext.js"></script>
 <script src="topics.js"></script>
 <script src="reading.js"></script>
 <script src="stories.js"></script>
@@ -426,7 +427,8 @@ function load() {
   return blank();
 }
 let S = load();
-function save() { try { localStorage.setItem(dataKey(), JSON.stringify(S)); } catch (e) { toast("Не удалось сохранить данные"); } }
+let NO_SAVE = false; // при восстановлении из копии: старые данные из памяти не должны затереть новые перед перезагрузкой
+function save() { if (NO_SAVE) return; try { localStorage.setItem(dataKey(), JSON.stringify(S)); } catch (e) { toast("Не удалось сохранить данные"); } }
 function D(n = today()) { const k = dayKey(n); return S.days[k] || (S.days[k] = { sec: 0, inp: 0, xp: 0, steps: {}, nw: 0 }); }
 const peekDay = n => S.days[dayKey(n)];
 
@@ -646,12 +648,17 @@ const CONTR = { "i'm": "i am", "you're": "you are", "we're": "we are", "they're"
   "mustn't": "must not", "haven't": "have not", "hasn't": "has not", "hadn't": "had not", "let's": "let us",
   "i'll": "i will", "you'll": "you will", "he'll": "he will", "she'll": "she will", "it'll": "it will", "we'll": "we will", "they'll": "they will",
   "i've": "i have", "you've": "you have", "we've": "we have", "they've": "they have", "what's": "what is", "that's": "that is",
-  "there's": "there is", "where's": "where is", "who's": "who is", "how's": "how is", "it's": "it is", "gonna": "going to", "wanna": "want to" };
+  "there's": "there is", "where's": "where is", "who's": "who is", "how's": "how is", "it's": "it is", "gonna": "going to", "wanna": "want to",
+  // на телефоне апостроф часто не ставят: isnt, dont, cant…
+  isnt: "is not", arent: "are not", wasnt: "was not", werent: "were not", dont: "do not", doesnt: "does not", didnt: "did not",
+  cant: "can not", wont: "will not", wouldnt: "would not", shouldnt: "should not", couldnt: "could not", mustnt: "must not",
+  havent: "have not", hasnt: "has not", hadnt: "had not", im: "i am", ive: "i have", youre: "you are", theyre: "they are",
+  weve: "we have", theyve: "they have", youve: "you have", thats: "that is", whats: "what is", theres: "there is" };
 function norm(s, alt) {
   let t = " " + String(s).toLowerCase().replace(/[’`]/g, "'").replace(/[—–-]/g, " ").replace(/[^a-z0-9' ]+/g, " ") + " ";
   t = t.replace(/\s+/g, " ");
   t = t.split(" ").map(w => {
-    if (CONTR[w]) return CONTR[w];
+    if (Object.prototype.hasOwnProperty.call(CONTR, w)) return CONTR[w];
     if (/^(he|she|it)'s$/.test(w)) return w.slice(0, -2) + (alt ? " has" : " is");
     if (/^\w+'d$/.test(w)) return w.slice(0, -2) + (alt ? " had" : " would");
     return w;
@@ -685,6 +692,27 @@ function check(user, target) {
     if (!u) continue;
     if (u === t || u === tNoTo) return 2;
     if (lev(u, tNoTo) <= Math.max(1, Math.floor(tNoTo.length / 8))) best = 1;
+  }
+  return best;
+}
+/* Проверка в грамматике строже, чем в словах: опечатку прощаем только в словах
+   от 5 букв и не там, где разница — грамматическое окончание, иначе «she live»
+   сошло бы за «she lives». 2 — верно, 1 — опечатка, 0 — неверно.
+   Варианты ответа — через « / ». */
+const endingDiff = (a, b) => { const [x, y] = a.length < b.length ? [a, b] : [b, a]; return y.startsWith(x) && /^(s|es|ed|d|ing|er|est|r|st)$/.test(y.slice(x.length)); };
+function gramCheck(user, target) {
+  let best = 0;
+  for (const tg of String(target).split(" / ")) for (const ta of [0, 1]) for (const ua of [0, 1]) {
+    const u = norm(user, ua).split(" ").filter(Boolean), t = norm(tg, ta).split(" ").filter(Boolean);
+    if (!u.length) continue;
+    if (u.join(" ") === t.join(" ")) return 2;
+    if (u.length !== t.length) continue;
+    let typos = 0, bad = false;
+    for (let i = 0; i < t.length && !bad; i++) {
+      if (u[i] === t[i]) continue;
+      if (t[i].length >= 5 && lev(u[i], t[i]) <= 1 && !endingDiff(u[i], t[i])) typos++; else bad = true;
+    }
+    if (!bad && typos <= 2) best = 1;
   }
   return best;
 }
@@ -1577,7 +1605,7 @@ function errSheet() {
     if (e.k === "w") { const w = itemById(e.id);
       return `<div class="li" style="cursor:default"><div class="lb"><div class="lt">${esc(w.en)} <span class="muted small">— ${esc(w.ru)}</span></div><div class="ls" style="font-size:12px">${dots(e)} ${status(e)} · ошибок ${e.n}</div></div></div>`; }
     const g = GRAMMAR.find(x => x.id === e.g);
-    const q = e.tp === "mc" ? esc(e.q).replace("___", `<b style="color:#a5f3fc">${esc(e.a)}</b>`) : `${esc(e.q)}<br><b style="color:#a5f3fc">${esc(e.a)}</b>`;
+    const q = e.tp === "mc" || e.tp === "gap" ? esc(e.q).replace("___", `<b style="color:#a5f3fc">${esc(e.a)}</b>`) : `${esc(e.q)}<br><b style="color:#a5f3fc">${esc(e.a)}</b>`;
     return `<div class="li" style="cursor:default"><div class="lb"><div class="lt" style="font-size:14px;font-weight:550">${q}</div><div class="ls" style="font-size:12px">🧩 ${esc(g ? g.title : "")} · ${dots(e)} ${status(e)} · ошибок ${e.n}</div></div></div>`;
   };
   const wLive = live.filter(([k, e]) => e.k === "w"), gLive = live.filter(([k, e]) => e.k === "g");
@@ -1667,7 +1695,7 @@ T.mc = (t, el) => {
     if (t.silent) { b.classList.add("pick"); if (t.onAnswer) t.onAnswer(ok); setTimeout(() => next(null), 250); return; }
     if (!ok) b.classList.add("bad");
     beep(ok);
-    if (t.g) errMark("g|" + t.g.id + "|" + q, ok, { k: "g", g: t.g.id, q, a: opts[0], tp: "mc" });
+    if (t.g) { errMark("g|" + t.g.id + "|" + q, ok, { k: "g", g: t.g.id, q, a: opts[0], tp: "mc" }); gqSeen(t.g, t.item); }
     const full = q.replace("___", opts[0]);
     if (!ok) feedback($("#fbx"), "bad", `<b>Правильно:</b> ${esc(full)}`);
     if (t.onAnswer) t.onAnswer(ok);
@@ -1677,7 +1705,7 @@ T.mc = (t, el) => {
 
 /* собрать предложение или перевести */
 T.build = (t, el) => {
-  const [ru, en] = t.item;
+  const [ru, en, ...alts] = t.item;
   const words = en.split(" ");
   let typed = !!t.typed, built = [];
   const draw = () => {
@@ -1706,9 +1734,9 @@ T.build = (t, el) => {
     }
   };
   const done = ans => {
-    const r = check(ans, en);
+    const r = t.g ? gramCheck(ans, [en, ...alts].join(" / ")) : check(ans, en);
     beep(r > 0);
-    if (t.g) errMark("g|" + t.g.id + "|" + ru, r > 0, { k: "g", g: t.g.id, q: ru, a: en, tp: "tr" });
+    if (t.g) { errMark("g|" + t.g.id + "|" + ru, r > 0, { k: "g", g: t.g.id, q: ru, a: en, tp: "tr" }); gqSeen(t.g, t.item); }
     if (t.onAnswer) t.onAnswer(r > 0);
     feedback($("#fbx"), r === 2 ? "ok" : r === 1 ? "mid" : "bad",
       `<div class="row"><div style="flex:1"><b>${r === 2 ? esc(coach("right")) : r === 1 ? "Почти — мелкая ошибка." : esc(coach("wrong"))}</b><br>${esc(en)}</div>${speakBtn(en)}</div>`);
@@ -1718,6 +1746,40 @@ T.build = (t, el) => {
     setTimeout(() => $("#nx") && $("#nx").focus(), 50);
   };
   draw();
+};
+
+/* Вписать форму самому: вспомнить и написать сильнее, чем выбрать из
+   вариантов. В скобках — подсказка: какое слово поставить в нужную форму. */
+T.gap = (t, el) => {
+  const [q, ...answers] = t.item, ans = answers[0], [before, after = ""] = q.split("___");
+  const noHint = x => x.replace(/\s*\([^)]*\)/g, "");
+  el.innerHTML = `<div class="q-label">${t.label || "Впиши нужную форму"}${t.g ? ` · ${esc(t.g.title)}` : ""}</div>
+    <div class="q-mid" style="line-height:1.5">${esc(before)}<span style="color:var(--cyan);letter-spacing:2px">_____</span>${esc(after)}</div>
+    <p class="small dim">В скобках — подсказка: какое слово поставить в нужную форму или что сказать.</p>
+    <input class="answer" id="ans" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="что вставить…">
+    <div class="actions"><button class="btn" id="idk">Не знаю</button><button class="btn primary" id="chk">Проверить</button></div><div id="fbx"></div>`;
+  const inp = $("#ans", el); setTimeout(() => inp.focus(), 60);
+  let answered = false;
+  const record = ok => {
+    if (t.g) { errMark("g|" + t.g.id + "|" + q, ok, { k: "g", g: t.g.id, q, a: ans, tp: "gap" }); gqSeen(t.g, t.item); }
+    if (t.onAnswer) t.onAnswer(ok);
+    next(ok);
+  };
+  const finish = v => {
+    if (answered) return; answered = true;
+    const r = v ? gramCheck(v, answers.join(" / ")) : 0, ok = r === 2;
+    const say = noHint(q).replace("___", ans).split("→").pop().trim();
+    beep(ok); speak(say);
+    feedback($("#fbx", el), ok ? "ok" : r === 1 ? "mid" : "bad",
+      `<div class="row" style="align-items:flex-start"><div style="flex:1"><b>${ok ? esc(coach("right")) : r === 1 ? "Почти — проверь написание." : esc(coach("wrong"))}</b><br>${esc(noHint(before))}<b style="color:#a5f3fc">${esc(ans)}</b>${esc(noHint(after))}${ok ? "" : spellNote(v, ans, r)}</div>${speakBtn(say)}</div>`);
+    $(".actions", el).innerHTML = (!ok && v ? `<button class="btn" id="typo">Я знал, опечатка</button>` : "") + `<button class="btn primary" id="nx">Дальше</button>`;
+    $("#nx", el).onclick = () => record(ok);
+    if ($("#typo", el)) $("#typo", el).onclick = () => record(true);
+    setTimeout(() => $("#nx", el) && $("#nx", el).focus(), 50);
+  };
+  $("#chk", el).onclick = () => { if (inp.value.trim()) finish(inp.value); };
+  $("#idk", el).onclick = () => finish("");
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); answered ? $("#nx", el).click() : $("#chk", el).click(); } };
 };
 
 /* диктант */
@@ -2014,17 +2076,31 @@ function startStep(k, chain) {
     runStage("Говорение", [{ type: "speak", p: speakPrompt() }], () => { done(); }, { chain, step: k });
   }
 }
+/* ---------- банк вопросов грамматики ----------
+   В каждой теме три вида заданий: mc — выбрать форму, gap — вписать форму
+   самому, tr — перевести. Каждый раз берутся вопросы, которые ты видел реже
+   и давнее остальных: так приходится вспоминать правило, а не заученный ответ. */
+const gqKey = (g, item) => g.id + "|" + item[0];
+function gqSeen(g, item) { S.gq = S.gq || {}; const k = gqKey(g, item), x = S.gq[k] || [0, 0]; x[0]++; x[1] = today(); S.gq[k] = x; }
+function gqPick(g, list, n, skip) {
+  const seen = S.gq || {}, st = it => seen[gqKey(g, it)] || [0, 0];
+  return shuffle((list || []).filter(it => !skip || !skip.has(it[0]))).sort((a, b) => st(a)[0] - st(b)[0] || st(a)[1] - st(b)[1]).slice(0, n);
+}
 function startGrammar(g, chain, asStep) {
   const st = S.gram[g.id] || {};
   const tasks = [];
   if (!st.runs) tasks.push({ type: "rule", g });
   const typed = lvIdx(g.lvl) >= 3 || lvIdx(P().level) >= 3;
-  const mcs = shuffle(g.mc).map(item => ({ type: "mc", item, g }));
-  const trs = shuffle(g.tr).map(item => ({ type: "build", item, g, typed }));
-  tasks.push(mcs[0], trs[0], mcs[1], trs[1], trs[2], mcs[2], trs[3], mcs[3], trs[4], trs[5]);
-  // перемешивание со старыми темами
+  const mcs = gqPick(g, g.mc, 3).map(item => ({ type: "mc", item, g }));
+  const gaps = gqPick(g, g.gap, 3).map(item => ({ type: "gap", item, g }));
+  const trs = gqPick(g, g.tr, 4).map(item => ({ type: "build", item, g, typed }));
+  tasks.push(mcs[0], trs[0], gaps[0], mcs[1], trs[1], gaps[1], trs[2], mcs[2], gaps[2], trs[3]);
+  // перемешивание со старыми темами: выбрать или вписать форму
   const old = GRAMMAR.filter(x => x.id !== g.id && S.gram[x.id] && S.gram[x.id].runs);
-  shuffle(old).slice(0, 2).forEach(o => tasks.push({ type: "mc", item: rnd(o.mc), g: o, label: "Повтор старой темы" }));
+  shuffle(old).slice(0, 2).forEach(o => {
+    const useGap = (o.gap || []).length && Math.random() < 0.5, item = gqPick(o, useGap ? o.gap : o.mc, 1)[0];
+    if (item) tasks.push({ type: useGap ? "gap" : "mc", item, g: o, label: "Повтор старой темы" });
+  });
   runStage("Грамматика", tasks.filter(Boolean), r => {
     const pct = Math.round(r.ok / Math.max(1, r.ok + r.bad) * 100);
     const s = S.gram[g.id] = S.gram[g.id] || { runs: 0, best: 0 };
@@ -2043,14 +2119,18 @@ function startGrammar(g, chain, asStep) {
 function startGramMix() {
   const topics = GRAMMAR.filter(g => S.gram[g.id] && S.gram[g.id].runs);
   if (topics.length < 2) return toast("Пройди хотя бы 2 темы — тогда будет что перемешивать");
-  const per = {}, pick = [];
-  for (const x of shuffle(topics.flatMap(g => g.mc.map(item => ({ g, item }))))) {
+  const per = {}, pick = [], pool = [];
+  for (const g of topics) {
+    gqPick(g, g.mc, 2).forEach(item => pool.push({ g, item, type: "mc" }));
+    gqPick(g, g.gap, 2).forEach(item => pool.push({ g, item, type: "gap" }));
+  }
+  for (const x of shuffle(pool)) {
     if ((per[x.g.id] || 0) >= 3) continue;
     per[x.g.id] = (per[x.g.id] || 0) + 1; pick.push(x);
     if (pick.length >= 12) break;
   }
   const stat = {};
-  const tasks = pick.map(x => ({ type: "mc", item: x.item, g: x.g, label: "🔀 Микс тем", onAnswer: ok => { const st = stat[x.g.id] || (stat[x.g.id] = { ok: 0, n: 0 }); st.n++; if (ok) st.ok++; } }));
+  const tasks = pick.map(x => ({ type: x.type, item: x.item, g: x.g, label: "🔀 Микс тем", onAnswer: ok => { const st = stat[x.g.id] || (stat[x.g.id] = { ok: 0, n: 0 }); st.n++; if (ok) st.ok++; } }));
   runStage("Смешанная практика", tasks, () => ({
     html: `<div class="card" style="margin-top:12px">${Object.keys(stat).map(id => { const g = GRAMMAR.find(x => x.id === id), st = stat[id];
       return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>${st.ok === st.n ? "✅" : "🔧"}</span><div style="flex:1"><b>${esc(g.title)}</b><div class="small muted">${st.ok} из ${st.n}</div></div></div>`; }).join("")}
@@ -2067,10 +2147,17 @@ function startGramReview(topics, chain, asStep) {
     const errs = errList("g").filter(([k, e]) => e.g === g.id).map(([k, e]) => e).slice(0, 3);
     const used = new Set();
     for (const e of errs) {
-      if (e.tp === "mc") { const item = g.mc.find(x => x[0] === e.q); if (item) { tasks.push({ type: "mc", item, g, label: "🔧 Была ошибка", onAnswer }); used.add(e.q); } }
-      else { const item = g.tr.find(x => x[0] === e.q); if (item) { tasks.push({ type: "build", item, g, typed: lvIdx(g.lvl) >= 3, onAnswer }); used.add(e.q); } }
+      const list = e.tp === "mc" ? g.mc : e.tp === "gap" ? (g.gap || []) : g.tr, item = list.find(x => x[0] === e.q);
+      if (!item) continue;
+      tasks.push(e.tp === "mc" ? { type: "mc", item, g, label: "🔧 Была ошибка", onAnswer }
+        : e.tp === "gap" ? { type: "gap", item, g, label: "🔧 Была ошибка", onAnswer }
+        : { type: "build", item, g, typed: lvIdx(g.lvl) >= 3, onAnswer });
+      used.add(e.q);
     }
-    shuffle(g.mc.filter(x => !used.has(x[0]))).slice(0, Math.max(2, 4 - errs.length)).forEach(item => tasks.push({ type: "mc", item, g, label: "↩️ Повтор темы", onAnswer }));
+    // остальное — вопросы, которые давно не попадались: вписать форму и выбрать форму
+    const need = Math.max(2, 4 - errs.length), gaps = gqPick(g, g.gap, Math.ceil(need / 2), used);
+    gaps.forEach(item => tasks.push({ type: "gap", item, g, label: "↩️ Повтор темы", onAnswer }));
+    gqPick(g, g.mc, need - gaps.length, used).forEach(item => tasks.push({ type: "mc", item, g, label: "↩️ Повтор темы", onAnswer }));
   }
   runStage("Повтор грамматики", shuffle(tasks), r => {
     const t = today(), rows = [];
@@ -2488,7 +2575,7 @@ function importSheet() {
 function renderGram() {
   const el = $("#v-gram"), cur = currentTopic();
   const dueG = gramDueTopics(), gErr = errList("g");
-  let html = `<div class="card"><div class="small muted" style="line-height:1.55">Одна тема в день: правило на пальцах → выбор формы → сборка и перевод фраз. Тема засчитывается при 80% верных и потом <b style="color:var(--text)">возвращается на повтор</b> через 1 → 3 → 7 → 14 → 30 → 60 дней — вместе с вопросами, где ты ошибался.</div>
+  let html = `<div class="card"><div class="small muted" style="line-height:1.55">Одна тема в день: правило на пальцах → выбор формы → вписать форму самому → сборка и перевод фраз. В каждой теме 40 вопросов, и каждый раз идут те, что ты давно не видел. Тема засчитывается при 80% верных и потом <b style="color:var(--text)">возвращается на повтор</b> через 1 → 3 → 7 → 14 → 30 → 60 дней — вместе с вопросами, где ты ошибался.</div>
     ${dueG.length ? `<button class="btn primary wide" id="gRv" style="margin-top:10px">↩️ Повторить пройденное · ${dueG.length} ${plural(dueG.length, "тема", "темы", "тем")}</button>` : ""}
     ${gErr.length ? `<button class="btn wide sm" id="gErr" style="margin-top:8px">🔧 Ошибки в грамматике · ${gErr.length}</button>` : ""}
     ${(() => { const n = GRAMMAR.filter(g => S.gram[g.id] && S.gram[g.id].runs).length; return n >= 2 ? `<button class="btn wide sm" id="gMix" style="margin-top:8px">🔀 Смешанная практика · все пройденные темы (${n})</button>` : ""; })()}</div>`;
@@ -2784,7 +2871,7 @@ function renderProg() {
       <li><b>Ступени слова</b>: 🆕 новое → 🌱 знакомлюсь → 🌿 учу → 🌳 закрепляю → ✅ знаю (3+ недели) → 🏆 выучено (2+ месяца).</li>
       <li><b>Ошибка → журнал ошибок.</b> Она исправлена, когда ответишь верно <b>в два разных дня после ошибки</b> — так проверяется долгая память.</li>
       <li><b>Работа над ошибками</b> — шаг плана: слова из журнала проходишь по 3 ступеням (узнать → выбрать → написать).</li>
-      <li><b>Грамматика</b>: тема засчитана при 80% → возвращается на повтор через 1 → 3 → 7 → 14 → 30 → 60 дней вместе с вопросами, где ошибался.</li>
+      <li><b>Грамматика</b>: тема засчитана при 80% → возвращается на повтор через 1 → 3 → 7 → 14 → 30 → 60 дней вместе с вопросами, где ошибался. В каждой теме 40 вопросов трёх видов, и вопросы не повторяются по кругу — сначала те, что давно не видел.</li>
       <li><b>План дня по шагам</b>: сначала повторение и ошибки, потом новое. Много долгов по повторению — новых слов вдвое меньше.</li>
       <li><b>Чтение</b>: у каждого текста видно, сколько слов знакомо. Лучше всего — 95–98%; незнакомые слова можно выучить перед чтением.</li>
     </ol></details>`;
@@ -2867,7 +2954,22 @@ function renderProg() {
         <button class="btn danger wide" id="sReset">Удалить все данные</button>
       </div>
       <p class="small dim" style="margin:12px 0 0">Данные хранятся только на этом устройстве. Озвучка — голосами телефона, распознавание речи — Chrome и Android, на iPhone — в Safari с iOS 14.5+.</p>
-    </div>`;
+    </div>
+    ${(() => { const g = ghCfg(); let undo = false; try { undo = !!localStorage.getItem(GH_UNDO); } catch (e) {}
+      return `<div class="sect-title">☁️ Копия на GitHub</div><div class="card">${g.token ? `
+      <div class="small" style="line-height:1.6">Все профили сохраняются в твой секретный gist раз в неделю, когда открываешь приложение.<br>Последняя копия: <b>${g.last ? fmtDate(g.last) : "ещё не было"}</b>${g.last ? ` · следующая ≈ ${fmtDate(g.last + GH_DAYS)}` : ""}</div>
+      ${g.err ? `<div class="small" style="color:#fca5a5;margin-top:6px;line-height:1.5">⚠️ ${esc(g.err)}</div>` : ""}
+      <div class="gap8" style="margin-top:10px"><button class="btn wide" id="ghNow">☁️ Сделать копию сейчас</button><button class="btn wide" id="ghRes">Восстановить из копии</button>
+        ${undo ? `<button class="btn wide sm" id="ghUndo">↩️ Вернуть данные, что были до восстановления</button>` : ""}
+        <button class="btn ghost wide sm" id="ghOff">Отключить копию</button></div>` : `
+      <p class="small muted" style="line-height:1.55;margin-top:0">Раз в неделю все профили сами сохраняются в твой секретный gist на GitHub. Потеряешь телефон или браузер сотрёт данные — прогресс вернётся кнопкой «Восстановить».</p>
+      <ol class="small muted" style="padding-left:18px;line-height:1.7;margin:0 0 10px">
+        <li>Открой <a href="https://github.com/settings/tokens/new?scopes=gist&description=Lingvo%20backup" target="_blank" rel="noopener" style="color:#c4b5fd">страницу нового токена на GitHub</a> — галочка <b>gist</b> там уже стоит.</li>
+        <li>Expiration — <b>No expiration</b>, внизу — <b>Generate token</b>.</li>
+        <li>Скопируй токен (начинается с <code>ghp_</code>) и вставь сюда.</li></ol>
+      <div class="field"><input id="ghTok" placeholder="ghp_…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+      <button class="btn primary wide" id="ghOn">Сохранить и сделать копию</button>
+      <p class="small dim" style="margin:10px 0 0;line-height:1.5">Токен хранится только на этом телефоне и даёт доступ только к gist — не к репозиториям и не к аккаунту. Подойдёт и fine-grained токен с правом Gists: Read and write. Если копия уже есть (например, с прошлого телефона), приложение сначала предложит её загрузить.</p>`}</div>`; })()}`;
   el.innerHTML = html;
   $$("#sCoach button").forEach(b => b.onclick = () => { S.set.coach = b.dataset.c; save(); render(); });
   const how = $("details.howto", el); if (how) how.ontoggle = () => { if (!how.open && !S.howtoSeen) { S.howtoSeen = true; save(); } };
@@ -2900,12 +3002,133 @@ function renderProg() {
       r.readAsText(f); };
     i.click();
   };
+  if ($("#ghOn")) $("#ghOn").onclick = () => {
+    const v = $("#ghTok").value.trim();
+    if (!/^(ghp_|github_pat_|gho_)\w{20,}/.test(v)) return toast("Это не похоже на токен GitHub (ghp_… или github_pat_…)");
+    $("#ghOn").disabled = true; $("#ghOn").textContent = "Подключаю…"; ghConnect(v);
+  };
+  if ($("#ghNow")) $("#ghNow").onclick = async () => { $("#ghNow").disabled = true; await ghBackup(true); render(); };
+  if ($("#ghRes")) $("#ghRes").onclick = () => ghRestore(false);
+  if ($("#ghUndo")) $("#ghUndo").onclick = () => {
+    if (!confirm("Вернуть данные, которые были на телефоне до восстановления из копии?")) return;
+    try { const b = JSON.parse(localStorage.getItem(GH_UNDO)); ghApply(b); localStorage.removeItem(GH_UNDO); location.reload(); } catch (e) { NO_SAVE = false; toast("Не получилось"); }
+  };
+  if ($("#ghOff")) $("#ghOff").onclick = () => {
+    if (!confirm("Отключить копию на GitHub? Токен удалится с телефона, сама копия на GitHub останется.")) return;
+    try { localStorage.removeItem(GH_KEY); } catch (e) {} render();
+  };
   $("#sReset").onclick = () => {
     if (!confirm(`Удалить весь прогресс, слова и настройки профиля «${curProfile().name}»?`)) return;
     if (!confirm("Точно? Это не отменить.")) return;
     S = blank(); save(); go("today");
   };
 }
+
+/* ---------- копия на GitHub ----------
+   Раз в неделю при открытии приложения все профили сохраняются в секретный
+   gist на GitHub: потеряется телефон или браузер сотрёт данные — прогресс
+   вернётся одной кнопкой. Нужен токен GitHub с правом только на gist; он
+   хранится только на этом устройстве (ключ lingvo-gh) и в копию не попадает. */
+const GH_KEY = "lingvo-gh", GH_FILE = "lingvo-backup.json", GH_DAYS = 7, GH_UNDO = "lingvo-before-restore";
+const ghCfg = () => { try { return JSON.parse(localStorage.getItem(GH_KEY)) || {}; } catch (e) { return {}; } };
+const ghSet = c => { try { localStorage.setItem(GH_KEY, JSON.stringify(c)); } catch (e) {} };
+function ghPayload() {
+  save();
+  const data = {};
+  for (const p of PROF.list) { try { data[p.id] = JSON.parse(localStorage.getItem(dataKey(p.id))); } catch (e) {} }
+  return { app: "lingvo", v: 1, date: dayKey(today()), profiles: PROF, data };
+}
+const ghCards = b => Object.values(b.data || {}).reduce((n, d) => n + Object.keys((d && d.cards) || {}).length, 0);
+async function gh(cfg, path, method = "GET", body) {
+  const res = await fetch("https://api.github.com" + path, {
+    method, cache: "no-store",
+    headers: Object.assign({ Authorization: "Bearer " + cfg.token, Accept: "application/vnd.github+json" }, body ? { "Content-Type": "application/json" } : {}),
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) { const e = new Error("gh " + res.status); e.status = res.status; throw e; }
+  return res.json();
+}
+const ghErrText = e => e.status === 401 ? "токен не подошёл или истёк — создай новый" : e.status === 403 ? "у токена нет права на gist"
+  : e.status === 404 ? "копия не найдена" : e.status ? `GitHub ответил ошибкой ${e.status}` : "нет связи с GitHub";
+/* своя копия ищется среди gist'ов по имени файла — так восстановление работает и на новом телефоне */
+async function ghFind(cfg) {
+  for (let page = 1; page <= 5; page++) {
+    const list = await gh(cfg, `/gists?per_page=100&page=${page}`);
+    const hit = list.find(g => g.files && g.files[GH_FILE]);
+    if (hit) return hit;
+    if (list.length < 100) break;
+  }
+  return null;
+}
+async function ghBackup(manual, searched) {
+  const cfg = ghCfg(); if (!cfg.token) return false;
+  const pay = ghPayload(), n = ghCards(pay);
+  // если данных стало намного меньше (например, после «Удалить все данные»), сама копия старую не затирает
+  if (!manual && cfg.cards > 20 && n < cfg.cards / 2) { cfg.err = "данных стало намного меньше, чем в прошлой копии, — копию не перезаписал. Если так и надо, нажми «Сделать копию сейчас»."; ghSet(cfg); return false; }
+  const body = { description: "Лингво — копия прогресса (не удаляй)", files: { [GH_FILE]: { content: JSON.stringify(pay) } } };
+  try {
+    if (!cfg.gist && !searched) { const f = await ghFind(cfg); cfg.gist = f ? f.id : null; }
+    if (cfg.gist) {
+      try { await gh(cfg, "/gists/" + cfg.gist, "PATCH", body); }
+      catch (e) { if (e.status !== 404) throw e; cfg.gist = null; }
+    }
+    if (!cfg.gist) cfg.gist = (await gh(cfg, "/gists", "POST", Object.assign({ public: false }, body))).id;
+    Object.assign(cfg, { last: today(), cards: n, err: "" }); ghSet(cfg);
+    toast("☁️ Копия на GitHub сохранена");
+    return true;
+  } catch (e) {
+    cfg.err = ghErrText(e); ghSet(cfg);
+    if (manual || e.status) toast("Копия на GitHub не сохранилась: " + cfg.err);
+    return false;
+  }
+}
+/* раз в неделю — при открытии приложения; после неудачи снова пробуем не чаще раза в день */
+function ghAuto() {
+  const c = ghCfg(), t = today();
+  if (!c.token || (c.last && t - c.last < GH_DAYS) || c.lastTry === t) return;
+  c.lastTry = t; ghSet(c);
+  ghBackup(false);
+}
+function ghApply(b) {
+  NO_SAVE = true;
+  for (const pid in b.data) if (b.data[pid]) localStorage.setItem(dataKey(pid), JSON.stringify(b.data[pid]));
+  localStorage.setItem(PKEY, JSON.stringify(b.profiles));
+}
+async function ghRestore(asked) {
+  const cfg = ghCfg();
+  try {
+    const found = cfg.gist ? { id: cfg.gist } : await ghFind(cfg);
+    if (!found) return toast("Копия на GitHub не найдена");
+    const g = await gh(cfg, "/gists/" + found.id), f = g.files && g.files[GH_FILE];
+    if (!f) return toast("Копия на GitHub не найдена");
+    const text = f.truncated ? await (await fetch(f.raw_url, { cache: "no-store" })).text() : f.content;
+    const b = JSON.parse(text);
+    if (!b || b.app !== "lingvo" || !b.data || !b.profiles || !Array.isArray(b.profiles.list)) throw new Error("format");
+    const when = fmtDate(Math.round(Date.parse(b.date) / DAY));
+    if (!asked && !confirm(`Заменить данные на этом телефоне копией от ${when}? Текущий прогресс будет перезаписан.`)) return;
+    try { localStorage.setItem(GH_UNDO, JSON.stringify(ghPayload())); } catch (e) {}
+    ghApply(b);
+    Object.assign(cfg, { gist: found.id, cards: ghCards(b), err: "" }); ghSet(cfg);
+    location.reload();
+  } catch (e) { NO_SAVE = false; toast("Не удалось восстановить: " + (e.message === "format" || e instanceof SyntaxError ? "файл копии повреждён" : ghErrText(e))); }
+}
+/* подключение: если копия уже есть (например, с прошлого телефона), сначала предлагаем её загрузить */
+async function ghConnect(token) {
+  const cfg = Object.assign(ghCfg(), { token, err: "" });
+  try {
+    const found = await ghFind(cfg);
+    cfg.gist = found ? found.id : null; ghSet(cfg);
+    if (found) {
+      const when = found.updated_at ? fmtDate(Math.round(Date.parse(found.updated_at.slice(0, 10)) / DAY)) : "раньше";
+      if (confirm(`На GitHub уже есть копия от ${when}. Загрузить её на этот телефон? Текущие данные телефона будут заменены.`)) return ghRestore(true);
+      if (!confirm("Тогда сохранить в копию данные этого телефона? Старая копия будет перезаписана.")) { render(); return toast("Токен сохранён. Копия на GitHub не тронута"); }
+    }
+    await ghBackup(true, true);
+  } catch (e) { cfg.err = ghErrText(e); ghSet(cfg); toast("Не получилось: " + cfg.err); }
+  render();
+}
+setTimeout(ghAuto, 3000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(ghAuto, 2000); });
 
 /* ---------- марафон слов ---------- */
 /* Быстрый прогон по словам: выбор перевода из 4, в обе стороны.
