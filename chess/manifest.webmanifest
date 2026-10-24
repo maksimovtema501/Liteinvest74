@@ -1,0 +1,19 @@
+{
+  "name": "Шахматы — играй, решай, учись с тренером",
+  "short_name": "Шахматы",
+  "description": "Игра с ботами и друзьями, задачи, штурм, уроки, дебюты и разбор партий с тренером.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#302e2b",
+  "theme_color": "#262421",
+  "categories": ["games", "education"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
