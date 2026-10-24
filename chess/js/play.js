@@ -10,6 +10,7 @@ import { BOTS, botById, botMove, botThinkDelay } from "./bots.js";
 import { classify, CLS, BAD } from "./review.js";
 import { play as snd, moveSound } from "./sound.js";
 import { go } from "./router.js";
+import { aiKey, aiAsk, aiHtml, aiError, aiKeyHelp } from "./ai.js";
 
 export let G = null;
 
@@ -325,10 +326,12 @@ class GameCtl {
     }
     const strip = ["inaccuracy", "mistake", "miss", "blunder", "good", "excellent", "brilliant"].includes(c.cls);
     const text = strip ? c.comment.replace(/^[^.!?]*[.!?]\s*/, "") : c.comment;
-    this.coachSay(`<span class="ci ${k.c}" style="display:inline-flex;vertical-align:-4px;margin-right:4px">${k.s}</span><b>${k.t}.</b> ${esc(text)}${acts}`);
+    const more = aiKey() && c.cls !== "book" && c.cls !== "forced" ? ` <button class="btn sm ghost" data-a="ai" style="min-height:26px;padding:3px 8px">🤖 Подробнее</button>` : "";
+    this.coachSay(`<span class="ci ${k.c}" style="display:inline-flex;vertical-align:-4px;margin-right:4px">${k.s}</span><b>${k.t}.</b> ${esc(text)}${more}${acts}`);
     const box = this.ui.coach;
     $$("[data-a]", box).forEach(b => b.onclick = () => {
       const a = b.dataset.a;
+      if (a === "ai") this.aiMove(c, before);
       if (a === "undo") this.takeback(true);
       if (a === "cont") { this.coachSay("Продолжаем. Будь внимательнее!"); this.nextTurn(); }
       if (a === "best" && c.bestUci) {
@@ -337,6 +340,83 @@ class GameCtl {
         b.outerHTML = `<span class="small muted">Лучше было <b>${esc(san)}</b></span>`;
       }
     });
+  }
+
+  /* ИИ-тренер: подробное объяснение последнего хода */
+  async aiMove(c, before) {
+    const h = this.hist.find(x => x.before === before);
+    if (!h) return;
+    const m = modal(`<h2>🤖 Ход ${esc(figSan(h.san))}</h2><div class="prose" id="aiOut" style="user-select:text;-webkit-user-select:text"><p class="muted">Считаю варианты…</p></div>
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" data-close>Закрыть</button></div>`, { wide: true });
+    const out = $("#aiOut", m);
+    const pre = await this.preAnalysis(before);
+    let reply = "";
+    try {
+      const r = await engine.analyse(h.fen, { depth: 12, tag: "ai" });
+      if (r.lines[0]) reply = sanLine(h.fen, r.lines[0].pv, 6, false);
+    } catch {}
+    const ev = s => fmtEval(h.color === "w" ? s : -s);
+    const prompt = `${this.positionBrief(before)}
+Ученик сыграл ${h.san}. Оценка движка: «${CLS[c.cls].t}».
+Оценка до хода: ${ev(c.bestS)}, после хода: ${ev(c.playedS)} (с точки зрения белых).
+Лучшие ходы движка в этой позиции: ${(pre?.lines || []).map(l => sanLine(before, l.pv, 6, false)).join(" | ") || "—"}.
+Лучший ответ соперника на сыгранный ход: ${reply || "—"}.
+Объясни ученику, ${BAD.includes(c.cls) ? "почему ход плохой, что он упустил и в чём идея лучшего хода" : "чем хорош этот ход и какой план дальше"}. 3–6 предложений.`;
+    this.askAi(out, [{ role: "user", content: prompt }]);
+  }
+
+  /* ИИ-тренер: вопрос о текущей позиции во время партии */
+  aiChat() {
+    if (!aiKey()) { aiKeyHelp(() => this.aiChat()); return; }
+    const msgs = [];
+    const m = modal(`<h2>🤖 Спросить тренера</h2>
+      <div class="small muted" style="margin-bottom:8px">Тренер видит позицию и оценку движка. Спросите о плане, угрозах или идеях.</div>
+      <div class="chat" id="acList" style="max-height:340px;overflow:auto;padding:0 0 8px"></div>
+      <div class="chips" id="acQuick" style="margin-bottom:8px">${["Какой у меня план?", "Что задумал соперник?", "Какие фигуры плохо стоят?", "Как играть дальше?"].map(q => `<button class="chip sm">${q}</button>`).join("")}</div>
+      <div class="row"><input type="text" id="acIn" placeholder="Ваш вопрос…" maxlength="500"><button class="btn primary" id="acGo">➤</button></div>`, { wide: true });
+    const list = $("#acList", m);
+    let busy = false;
+    const send = async q => {
+      q = q.trim();
+      if (!q || busy) return;
+      busy = true;
+      const me = document.createElement("div"); me.className = "msg me"; me.textContent = q; list.appendChild(me);
+      const out = document.createElement("div"); out.className = "msg"; out.innerHTML = `<span class="muted">думает…</span>`; list.appendChild(out);
+      list.scrollTop = list.scrollHeight;
+      let lines = "";
+      try {
+        const fen = this.chess.fen(), sign = this.turn === "w" ? 1 : -1;
+        const r = await engine.analyse(fen, { depth: 14, multipv: 3, tag: "ai" });
+        lines = r.lines.map(l => `${fmtEval(scoreOf(l) * sign)}: ${sanLine(fen, l.pv, 6, false)}`).join(" | ");
+      } catch {}
+      const content = msgs.length ? q : `${this.positionBrief(this.chess.fen())}\nОценка движка и лучшие варианты: ${lines || "—"}.\n\nВопрос ученика: ${q}`;
+      msgs.push({ role: "user", content });
+      const answer = await this.askAi(out, msgs.slice(), () => { list.scrollTop = list.scrollHeight; });
+      if (answer) msgs.push({ role: "assistant", content: answer }); else msgs.pop();
+      busy = false;
+    };
+    $("#acGo", m).onclick = () => { const v = $("#acIn", m).value; $("#acIn", m).value = ""; send(v); };
+    $("#acIn", m).onkeydown = e => { if (e.key === "Enter") $("#acGo", m).click(); };
+    $$("#acQuick .chip", m).forEach(b => b.onclick = () => send(b.textContent));
+  }
+
+  positionBrief(fen) {
+    const n = this.hist.findIndex(h => h.before === fen);
+    const upto = n >= 0 ? this.hist.slice(0, n) : this.hist;
+    const sans = upto.map((h, i) => (h.color === "w" ? `${Math.floor(i / 2) + 1}. ` : "") + h.san).join(" ");
+    const uc = this.userColor === "w" ? "белыми" : "чёрными";
+    return `Идёт партия ${this.mode === "bot" ? `против бота «${this.bot?.name}» (рейтинг ${this.bot?.elo})` : "тренировочная"}. Ученик играет ${uc}.
+Позиция (FEN): ${fen}. Ход ${fen.split(" ")[1] === "w" ? "белых" : "чёрных"}.
+Ходы партии: ${sans || "партия только началась"}.`;
+  }
+
+  async askAi(out, messages, onUpdate) {
+    try {
+      return await aiAsk({ messages, effort: "low", onText: t => { out.innerHTML = aiHtml(t); onUpdate && onUpdate(); } });
+    } catch (e) {
+      out.innerHTML = `<span class="red">${esc(aiError(e))}</span>`;
+      return null;
+    }
   }
 
   coachSay(html, av = "🧑‍🏫") {
@@ -796,6 +876,7 @@ class GameCtl {
       !r ? ["resign", this.hist.length < 2 && this.mode !== "online" ? "✕ Прервать партию" : "⚑ Сдаться"] : null,
       this.mode !== "online" ? ["eval", (this.cfg.evalBar ? "✓ " : "") + "Шкала оценки"] : null,
       this.mode === "bot" || this.mode === "practice" ? ["coach", (this.cfg.coach ? "✓ " : "") + "Тренер оценивает ходы"] : null,
+      this.mode !== "online" ? ["ai", "🤖 Спросить ИИ-тренера о позиции"] : null,
       r ? ["analysis", "🔬 Открыть в анализе"] : null,
       ["pgn", "📋 Скопировать PGN"],
       ["fen", "📋 Скопировать FEN"],
@@ -817,6 +898,7 @@ class GameCtl {
         });
       }
       if (k === "coach") { this.cfg.coach = !this.cfg.coach; this.ui.coach.classList.toggle("hidden", !this.cfg.coach && this.mode !== "practice"); this.renderCtrl(); if (this.cfg.coach) this.coachSay("Тренер на связи: буду оценивать твои ходы."); }
+      if (k === "ai") this.aiChat();
       if (k === "analysis") go(`analysis?game=${this.id}`);
       if (k === "pgn") copyText(this.pgn());
       if (k === "fen") copyText(this.chess.fen());
