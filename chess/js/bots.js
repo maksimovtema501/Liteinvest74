@@ -1,5 +1,5 @@
-/* Боты с характером. Сильные (1500+) — Stockfish с ограничением силы
-   (UCI_Elo). Слабые — свой выбор хода: движок даёт несколько кандидатов,
+/* Боты с характером. Сильные (2000+) — Stockfish с ограничением силы
+   (UCI_Elo). Остальные — свой выбор хода: движок даёт несколько кандидатов,
    бот выбирает «по-человечески» (софтмакс по оценке) и иногда зевает.
    У каждого — любимые дебюты и реплики в чате. */
 import { engine } from "./engine.js";
@@ -38,15 +38,18 @@ export const BOTS = [
 ];
 export const botById = id => BOTS.find(b => b.id === id) || BOTS[3];
 
-/* параметры слабых ботов по рейтингу: глубина, «температура» выбора и шанс зевка */
+/* параметры «человеческих» ботов: глубина счёта, «температура» выбора
+   (насколько охотно берётся не лучший ход) и шанс зевка — по опорным точкам */
+const ANCHORS = [
+  [250, 1, 300, 0.30], [400, 1, 220, 0.22], [600, 2, 160, 0.15], [800, 3, 120, 0.10], [1000, 4, 90, 0.07],
+  [1200, 5, 65, 0.045], [1400, 6, 48, 0.03], [1600, 8, 34, 0.018], [1800, 10, 24, 0.01], [2000, 12, 16, 0.005],
+];
 function weakParams(elo) {
-  const t = Math.max(0, Math.min(1, (elo - 250) / (1500 - 250)));
-  return {
-    depth: Math.round(1 + t * 9),
-    temp: 260 - t * 235,
-    blunder: 0.28 * Math.pow(1 - t, 1.6) + 0.006,
-    multipv: 8,
-  };
+  let i = 0;
+  while (i < ANCHORS.length - 2 && elo > ANCHORS[i + 1][0]) i++;
+  const [e0, d0, t0, b0] = ANCHORS[i], [e1, d1, t1, b1] = ANCHORS[i + 1];
+  const k = Math.max(0, Math.min(1, (elo - e0) / (e1 - e0)));
+  return { depth: Math.round(d0 + (d1 - d0) * k), temp: t0 + (t1 - t0) * k, blunder: b0 + (b1 - b0) * k, multipv: 8 };
 }
 
 /* выбор хода бота; clockMs — оставшееся время бота (для партий с часами) */
@@ -76,7 +79,7 @@ export async function botMove(fen, bot, { history = [], clockMs = null, incMs = 
   }
 
   // 2. сильные боты — Stockfish с ограничением силы
-  if (bot.elo >= 1500) {
+  if (bot.elo >= 2000) {
     const full = bot.elo >= 3190;
     const r = await engine.analyse(fen, {
       elo: full ? null : bot.elo,
@@ -105,7 +108,7 @@ export async function botMove(fen, bot, { history = [], clockMs = null, incMs = 
     let s = (c.s - best) / p.temp;
     // новички любят брать фигуры
     const mv = legal.find(m => m.from + m.to + (m.promotion || "") === c.uci);
-    if (mv && mv.captured) s += (VAL[mv.captured] || 0) * 0.25 * (1 - bot.elo / 1500);
+    if (mv && mv.captured) s += (VAL[mv.captured] || 0) * 0.25 * Math.max(0, 1 - bot.elo / 1500);
     return Math.exp(Math.max(-30, s));
   });
   let x = Math.random() * w.reduce((a, b) => a + b, 0);
