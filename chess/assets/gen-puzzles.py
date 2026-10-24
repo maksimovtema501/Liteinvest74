@@ -335,27 +335,27 @@ def tag_themes(board_before, line, is_mate):
                             if tp.piece_type != chess.PAWN:
                                 targets.append(sq)
                 if len(targets) >= 2:
-                    # фигура позже берёт одну из целей
-                    later = line[1 + i + 1:]
+                    # позже решающий забирает одну из атакованных фигур
                     tmp = nxt.copy()
-                    sq_now = mv.to_square
-                    for j, lm in enumerate(later):
-                        if tmp.turn == solver and lm.from_square == sq_now and lm.to_square in targets:
-                            t.add("fork")
-                            break
-                        if tmp.turn == solver and lm.from_square == sq_now:
-                            sq_now = lm.to_square
+                    for lm in line[1 + i + 1:]:
+                        if tmp.turn == solver and lm.to_square in targets:
+                            victim = tmp.piece_at(lm.to_square)
+                            if victim and victim.color != solver:
+                                t.add("fork")
+                                break
                         tmp.push(lm)
+            # связка: атакованная фигура не может уйти — за ней король, и её забирают
+            later_caps = [m.to_square for m in line[1 + i + 1:][1::2]]
+            for sq in nxt.attacks(mv.to_square):
+                tp = nxt.piece_at(sq)
+                if tp and tp.color != solver and tp.piece_type != chess.KING and nxt.is_pinned(not solver, sq) and sq in later_caps:
+                    t.add("pin")
             # связка / сквозной удар: дальнобойная фигура бьёт по линии через фигуру соперника
             if piece and piece.piece_type in SLIDERS:
                 for sq in nxt.attacks(mv.to_square):
                     tp = nxt.piece_at(sq)
                     if not tp or tp.color == solver:
                         continue
-                    if nxt.is_pinned(not solver, sq) and nxt.pin(not solver, sq) and mv.to_square in nxt.pin(not solver, sq):
-                        later = [m.to_square for m in line[1 + i + 1:][1::2]]
-                        if sq in later:
-                            t.add("pin")
                     if tp.piece_type in (chess.KING, chess.QUEEN):
                         ray = chess.ray(mv.to_square, sq)
                         beyond = [s for s in chess.SquareSet(ray)
@@ -427,6 +427,9 @@ def build(paths):
                 if key in seen:
                     continue
                 seen.add(key)
+                # темы пересчитываются: распознавание можно улучшать без нового анализа
+                line = [chess.Move.from_uci(u) for u in d["moves"].split()]
+                d["themes"] = tag_themes(chess.Board(d["fen"]), line, "mate" in d["themes"])
                 items.append(d)
     # оценка сложности эвристическая — растягиваем её по рангу на распределение
     # рейтингов 400–2700 (порядок «легче — сложнее» сохраняется)

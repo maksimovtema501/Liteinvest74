@@ -245,11 +245,55 @@ const RU_FAMILY = {
   "Queen's Indian Defense, with e3": "Новоиндийская защита", "Kádas Opening": "Дебют Кадаша", "Borg Defense": "Защита Борг",
   "Bongcloud Attack": "Атака «Бонгклауд»", "Amar Opening": "Дебют Амара", "Barnes Opening": "Дебют Барнса", "Ware Opening": "Дебют Уэра",
 };
+/* самые частые названия вариантов; редкие остаются как в базе */
+const RU_PART = {
+  "Classical Variation": "классический вариант", "Exchange Variation": "разменный вариант", "Closed": "закрытый вариант",
+  "Main Line": "главная линия", "Fianchetto Variation": "вариант с фианкетто", "Symmetrical Variation": "симметричный вариант",
+  "Advance Variation": "вариант с продвижением", "Winawer Variation": "вариант Винавера", "King's English Variation": "королевский вариант",
+  "Normal Variation": "обычный вариант", "Two Knights Defense": "защита двух коней", "Modern Variation": "современный вариант",
+  "Dragon Variation": "вариант дракона", "Morphy Defense": "защита Морфи", "Evans Gambit": "гамбит Эванса",
+  "Orthodox Defense": "ортодоксальная защита", "Open": "открытый вариант", "Rubinstein Variation": "вариант Рубинштейна",
+  "Berlin Defense": "берлинская защита", "Anglo-Slav Variation": "англо-славянский вариант", "Najdorf Variation": "вариант Найдорфа",
+  "Giuoco Pianissimo": "джуоко пьяниссимо", "Giuoco Piano": "джуоко пиано", "Classical Defense": "классическая защита",
+  "Sämisch Variation": "вариант Земиша", "Spanish Variation": "испанский вариант", "Tarrasch Variation": "вариант Тарраша",
+  "Chigorin Defense": "защита Чигорина", "Four Knights Variation": "вариант четырёх коней", "Bishop's Gambit": "гамбит слона",
+  "Anglo-Indian Defense": "англо-индийская защита", "Orthodox Variation": "ортодоксальный вариант", "Steinitz Variation": "вариант Стейница",
+  "Bogoljubow Variation": "вариант Боголюбова", "Scotch Gambit": "шотландский гамбит", "Four Pawns Attack": "атака четырёх пешек",
+  "Smith-Morra Gambit": "гамбит Морра", "Smith-Morra Gambit Accepted": "принятый гамбит Морра", "Scheveningen Variation": "шевенингенский вариант",
+  "Richter-Rauzer Variation": "атака Рихтера — Раузера", "Falkbeer Countergambit": "контргамбит Фалькбеера", "Yugoslav Attack": "югославская атака",
+  "Nimzowitsch Variation": "вариант Нимцовича", "Meran Variation": "меранский вариант", "Alapin Variation": "вариант Алапина",
+  "Three Knights Variation": "вариант трёх коней", "Semi-Tarrasch Defense": "защита полутарраш", "Kieseritzky Gambit": "гамбит Кизерицкого",
+  "Alekhine Variation": "вариант Алехина", "St. Petersburg Variation": "петербургский вариант", "Chigorin Variation": "вариант Чигорина",
+  "Torre Attack": "атака Торре", "Retreat Variation": "вариант с отступлением", "Positional Variation": "позиционный вариант",
+  "Kan Variation": "вариант Кана", "Classical Attack": "классическая атака", "Taimanov Variation": "вариант Тайманова",
+  "Panov Attack": "атака Панова", "Modern Line": "современная линия", "Modern Defense": "современная защита", "Fianchetto Line": "линия с фианкетто",
+  "Czech Variation": "чешский вариант", "Botvinnik Variation": "вариант Ботвинника", "Wing Gambit": "фланговый гамбит",
+  "McCutcheon Variation": "вариант Маккатчена", "Keres Variation": "вариант Кереса", "Capablanca Variation": "вариант Капабланки",
+  "Averbakh Variation": "вариант Авербаха", "Two Knights Variation": "вариант двух коней", "Smyslov Variation": "вариант Смыслова",
+  "Russian Variation": "русский вариант", "Maróczy Bind": "бинд Мароци", "Albin Countergambit": "контргамбит Альбина",
+  "Paulsen Variation": "вариант Паульсена", "Modern Steinitz Defense": "улучшенная защита Стейница",
+  "Kasparov-Petrosian Variation": "вариант Петросяна — Каспарова", "Greco Gambit": "гамбит Греко", "Fianchetto Defense": "защита с фианкетто",
+  "Colle System": "система Колле", "Spielmann Variation": "вариант Шпильмана", "Closed Variation": "закрытый вариант",
+  "Accelerated Dragon": "ускоренный дракон", "Tartakower Variation": "вариант Тартаковера", "Stonewall Variation": "каменная стена",
+  "Marshall Attack": "атака Маршалла", "Leningrad Variation": "ленинградский вариант", "Lasker Defense": "защита Ласкера",
+  "Max Lange Attack": "атака Макса Ланге", "Poisoned Pawn Variation": "вариант с отравленной пешкой", "Schliemann Defense": "защита Шлимана",
+  "English Attack": "английская атака", "Austrian Attack": "австрийская атака", "Vienna Gambit": "венский гамбит", "Sozin Attack": "атака Зозина",
+  "Petrosian Variation": "вариант Петросяна", "Spassky Variation": "вариант Спасского", "Moscow Variation": "московский вариант",
+  "Breyer Variation": "вариант Брейера", "Bronstein Variation": "вариант Бронштейна", "Karpov Variation": "вариант Карпова",
+  "Lasker Variation": "вариант Ласкера", "Lasker-Pelikan Variation": "вариант Ласкера — Пеликана (Свешникова)", "Grünfeld Variation": "вариант Грюнфельда",
+  "London System": "лондонская система", "Evans Gambit Declined": "отказанный гамбит Эванса", "Open Defense": "открытая защита",
+  "Open System": "открытая система", "Classical System": "классическая система", "Central Variation": "центральный вариант",
+  "Carlsbad Variation": "карлсбадский вариант", "Steinitz Defense": "защита Стейница", "Hanham Variation": "вариант Ханхема",
+  "Traditional Variation": "традиционный вариант", "Quiet Variation": "спокойный вариант", "Modern Attack": "современная атака",
+  "Budapest Gambit Accepted": "принятый будапештский гамбит", "Scandinavian Variation": "скандинавский вариант", "Accepted": "принятый",
+  "Declined": "отказанный", "Sveshnikov Variation": "вариант Свешникова", "Fried Liver Attack": "атака «жареной печени»",
+  "Traxler Counterattack": "контратака Тракслера", "Italian Variation": "итальянский вариант", "Scotch Variation": "шотландский вариант",
+};
 export function openingRu(name) {
   if (!name) return { ru: "", rest: "" };
   const i = name.indexOf(":");
   const fam = i >= 0 ? name.slice(0, i) : name;
-  const rest = i >= 0 ? name.slice(i + 1).trim() : "";
+  const rest = i >= 0 ? name.slice(i + 1).trim().split(", ").map(p => RU_PART[p] || p.replace(/^with /, "с ")).join(", ") : "";
   return { ru: RU_FAMILY[fam] || fam, rest, en: name };
 }
 
