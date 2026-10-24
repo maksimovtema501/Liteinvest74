@@ -320,9 +320,10 @@ class GameCtl {
     const bad = BAD.includes(c.cls);
     let acts = "";
     if (bad && this.cfg.allowTakeback && this.mode !== "local") {
+      const waits = c.cls !== "inaccuracy";   // при неточности партия не останавливается
       acts = `<div class="acts"><button class="btn sm primary" data-a="undo">↶ Вернуть ход</button>
         <button class="btn sm" data-a="best">Показать лучший</button>
-        <button class="btn sm ghost" data-a="cont">Продолжить</button></div>`;
+        ${waits ? `<button class="btn sm ghost" data-a="cont">Продолжить</button>` : ""}</div>`;
     }
     const strip = ["inaccuracy", "mistake", "miss", "blunder", "good", "excellent", "brilliant"].includes(c.cls);
     const text = strip ? c.comment.replace(/^[^.!?]*[.!?]\s*/, "") : c.comment;

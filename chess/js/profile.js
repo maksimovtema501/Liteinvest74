@@ -26,7 +26,7 @@ export function applyTheme() {
 
 export function resultFor(g) {
   if (g.result === "1/2-1/2") return { k: "draw", t: "½", c: "muted" };
-  if (!g.user) return { k: "none", t: g.result, c: "muted" };
+  if (!g.user || (g.result !== "1-0" && g.result !== "0-1")) return { k: "none", t: g.result, c: "muted" };
   const win = (g.result === "1-0") === (g.user === "w");
   return win ? { k: "win", t: "+", c: "green" } : { k: "loss", t: "−", c: "red" };
 }
@@ -49,7 +49,7 @@ export function viewProfile(el) {
   const mine = games.filter(g => g.user);
   const wins = mine.filter(g => resultFor(g).k === "win").length;
   const draws = mine.filter(g => resultFor(g).k === "draw").length;
-  const losses = mine.length - wins - draws;
+  const losses = mine.filter(g => resultFor(g).k === "loss").length;
   const reviewed = mine.filter(g => g.review);
   const avgAcc = reviewed.length ? Math.round(reviewed.reduce((a, g) => a + (g.review.acc[g.user] || 0), 0) / reviewed.length) : null;
   const solved = Object.values(S.puzzles.done).filter(x => x[0]).length;
@@ -89,7 +89,7 @@ export function viewProfile(el) {
         <div><div class="b" style="font-size:22px">${draws}</div><div class="small muted">ничьих</div></div>
         <div><div class="b red" style="font-size:22px">${losses}</div><div class="small muted">поражений</div></div>
       </div>
-      ${mine.length ? `<div class="bar" style="display:flex;margin-top:10px;height:10px"><i style="width:${wins / mine.length * 100}%;border-radius:0"></i><i style="width:${draws / mine.length * 100}%;background:#888;border-radius:0"></i><i style="width:${losses / mine.length * 100}%;background:var(--red);border-radius:0"></i></div>` : ""}
+      ${wins + draws + losses ? `<div class="bar" style="display:flex;margin-top:10px;height:10px"><i style="width:${wins / (wins + draws + losses) * 100}%;border-radius:0"></i><i style="width:${draws / (wins + draws + losses) * 100}%;background:#888;border-radius:0"></i><i style="width:${losses / (wins + draws + losses) * 100}%;background:var(--red);border-radius:0"></i></div>` : ""}
       <div class="grid2" style="margin-top:12px">
         <div class="small muted">Средняя точность: <b style="color:var(--text)">${avgAcc != null ? avgAcc + "%" : "—"}</b></div>
         <div class="small muted">Разобрано партий: <b style="color:var(--text)">${reviewed.length}</b></div>
