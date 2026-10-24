@@ -9,7 +9,7 @@ import { viewLearn, viewLesson, viewBasics, viewOpenings, viewOpening, viewPract
 import { viewAnalysis, viewReview } from "./analysis.js";
 import { viewCoach, todayPlan } from "./coach.js";
 import { viewOnline } from "./online.js";
-import { viewProfile, viewHistory, viewSettings, applyTheme, gameRow, pickAvatar, AVATARS } from "./profile.js";
+import { viewProfile, viewHistory, viewSettings, applyTheme, gameRow, AVATARS } from "./profile.js";
 
 const NAV = [
   ["home", "🏠", "Главная"], ["play", "♟", "Играть"], ["puzzles", "🧩", "Задачи"],

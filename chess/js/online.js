@@ -2,10 +2,10 @@
    а знакомит их публичный сервер PeerJS. Игра с другом — по ссылке или коду.
    Быстрый поиск — «лобби» из нескольких известных адресов: кто пришёл первым,
    занимает адрес и ждёт, следующий подключается к нему. */
-import { $, $$, esc, toast, copyText, sleep, plural } from "./util.js";
+import { $, $$, esc, toast, copyText, sleep } from "./util.js";
 import { S, save, tcSlot } from "./store.js";
 import { go } from "./router.js";
-import { startGame, me, G, TCS, tcName } from "./play.js";
+import { startGame, G, TCS, tcName } from "./play.js";
 import { play as snd } from "./sound.js";
 
 const PREFIX = "lc74chess-";

@@ -1,16 +1,15 @@
 /* Доска анализа (движок, варианты, расстановка, PGN) и разбор партии:
    оценка каждого хода, график, точность, советы тренера и ИИ-тренер. */
-import { $, $$, esc, modal, toast, copyText, plural, scoreOf, winPct, fmtEval, MATE, clamp } from "./util.js";
-import { S, save, setActive, unlock, activity } from "./store.js";
+import { $, $$, esc, modal, toast, copyText, scoreOf, winPct, fmtEval, MATE } from "./util.js";
+import { S, save, setActive, unlock } from "./store.js";
 import { Board, parseFen, pieceUrl } from "./board.js";
-import { Chess, makeChess, dests, playUci, uciOf, checkSquare, sanLine, figSan, buildPgn, parseInput, openingOf, openingRu, bookMoves, START_FEN } from "./chessutil.js";
+import { Chess, makeChess, dests, playUci, checkSquare, sanLine, figSan, buildPgn, parseInput, openingOf, openingRu, bookMoves, START_FEN } from "./chessutil.js";
 import { engine, liveEngine } from "./engine.js";
-import { analyseGame, classify, accuracy, packReview, unpackCls, coachSummary, CLS, CLS_ORDER, BAD, phaseOf } from "./review.js";
+import { analyseGame, classify, accuracy, packReview, unpackCls, CLS, CLS_ORDER, BAD } from "./review.js";
 import { PuzzleRunner } from "./puzzles.js";
 import { startGame, me, botPlayer, suggestBot } from "./play.js";
-import { botById } from "./bots.js";
 import { aiKey, aiAsk, aiHtml, aiError, aiKeyHelp } from "./ai.js";
-import { play as snd, moveSound } from "./sound.js";
+import { moveSound } from "./sound.js";
 import { go } from "./router.js";
 
 /* ======================================================================= */

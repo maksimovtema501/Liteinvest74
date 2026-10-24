@@ -6,7 +6,7 @@ import { Board, miniBoard } from "./board.js";
 import { makeChess, playUci, checkSquare, dests, figSan, START_FEN } from "./chessutil.js";
 import { SECTIONS, LESSONS, OPENINGS_LIB, OPENING_PRINCIPLES } from "../data/lessons.js";
 import { PuzzleRunner, themeCount, THEMES } from "./puzzles.js";
-import { startGame, me, botPlayer, G } from "./play.js";
+import { startGame, me, botPlayer } from "./play.js";
 import { botById } from "./bots.js";
 import { play as snd, moveSound } from "./sound.js";
 import { go } from "./router.js";

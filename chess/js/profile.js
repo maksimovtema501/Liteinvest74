@@ -2,8 +2,7 @@
 import { $, $$, esc, modal, toast, confirmBox, plural, today, fmtDate, downloadText } from "./util.js";
 import { S, save, ACHIEVEMENTS, streakDays, resetAll, exportData, importData } from "./store.js";
 import { go } from "./router.js";
-import { miniBoard } from "./board.js";
-import { setNotation, openingRu, makeChess, playUci, START_FEN } from "./chessutil.js";
+import { setNotation, openingRu } from "./chessutil.js";
 import { tcName } from "./play.js";
 import { aiKey, setAiKey, aiKeyHelp } from "./ai.js";
 

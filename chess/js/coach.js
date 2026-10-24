@@ -1,6 +1,6 @@
 /* Тренер: план на день, сильные и слабые стороны по задачам и партиям,
    оценка уровня и разговор с ИИ-тренером. */
-import { $, $$, esc, modal, toast, plural, today } from "./util.js";
+import { $, $$, esc, plural, today } from "./util.js";
 import { S, save, unlock, streakDays } from "./store.js";
 import { go } from "./router.js";
 import { THEMES, themeCount, dailyPuzzle, puzzleById } from "./puzzles.js";
@@ -8,7 +8,7 @@ import { nextLesson } from "./learn.js";
 import { suggestBot } from "./play.js";
 import { BOTS } from "./bots.js";
 import { unpackCls, phaseOf } from "./review.js";
-import { makeChess, playUci, openingRu, START_FEN } from "./chessutil.js";
+import { makeChess, playUci, openingRu } from "./chessutil.js";
 import { aiKey, aiAsk, aiHtml, aiError, aiKeyHelp, COACH_SYSTEM } from "./ai.js";
 import { resultFor } from "./profile.js";
 

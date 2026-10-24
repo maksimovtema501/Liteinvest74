@@ -1,7 +1,7 @@
 /* Партия: боты, игра вдвоём на одном устройстве, онлайн и практика позиций.
    Часы с добавлением, предходы, подсказки, возврат хода, тренер, который
    оценивает каждый твой ход сразу после него. */
-import { $, $$, esc, modal, closeModal, toast, confirmBox, fmtClock, scoreOf, winPct, fmtEval, MATE, copyText, plural } from "./util.js";
+import { $, $$, esc, modal, toast, confirmBox, fmtClock, scoreOf, winPct, fmtEval, copyText, plural } from "./util.js";
 import { S, save, activity, setActive, unlock, eloUpdate, tcSlot, checkStreakAch } from "./store.js";
 import { Board, pieceUrl } from "./board.js";
 import { makeChess, dests, playUci, uciOf, checkSquare, captured, gameEnd, buildPgn, openingForMoves, openingRu, figSan, sanLine, nullMoveFen, START_FEN } from "./chessutil.js";
@@ -641,7 +641,7 @@ class GameCtl {
   /* --- сохранение незаконченной партии --- */
   persist() {
     if (this.mode === "online" || this.result) return;
-    const { onEnd, ...cfg } = this.cfg;
+    const { onEnd: _skip, ...cfg } = this.cfg;   // обработчик цели не сохраняется
     S.current = { cfg: { ...cfg, id: this.id }, moves: this.hist.map(h => ({ uci: h.uci, cls: h.cls, comment: h.comment })), clocks: this.clock ? { w: this.rem("w"), b: this.rem("b") } : null, route: location.hash };
     save();
   }

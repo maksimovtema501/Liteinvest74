@@ -286,6 +286,7 @@ label.sw .ls{display:block;font-size:12.5px;color:var(--muted)}
   .coachbox{border-radius:0}
   .board-row{gap:0}
   .board-row .evalbar{width:12px;border-radius:0}
+  .board-row .evalbar .t{font-size:6.5px}
   .cb-sqs{border-radius:0}
 }
 
@@ -362,9 +363,7 @@ label.sw .ls{display:block;font-size:12.5px;color:var(--muted)}
 <nav id="nav"></nav>
 <script type="module" src="js/app.js"></script>
 <script>
-  if ("serviceWorker" in navigator && location.protocol === "https:") {
-    addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
-  }
+  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 /* Задачи: рейтинговые, «Штурм», задача дня, по темам, работа над ошибками
    и задачи из собственных партий. Первый ход в задаче — ошибка соперника,
    его приложение делает само, дальше ищешь лучшее продолжение. */
-import { $, $$, esc, modal, toast, plural, today, seeded, hashId, sleep, fmtClock } from "./util.js";
+import { $, $$, esc, modal, plural, today, seeded, hashId, sleep, fmtClock } from "./util.js";
 import { S, save, activity, setActive, unlock, checkStreakAch } from "./store.js";
 import { Board } from "./board.js";
 import { makeChess, dests, playUci, checkSquare, figSan, sanList, parseUci } from "./chessutil.js";
