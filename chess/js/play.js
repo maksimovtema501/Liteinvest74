@@ -683,7 +683,7 @@ class GameCtl {
   /* --- онлайн-сообщения --- */
   onNet(msg) {
     if (msg.t === "move" && !this.result) {
-      if (this.turn === this.userColor) return;
+      if (this.turn === this.userColor || (msg.ply && msg.ply !== this.hist.length + 1)) return;
       const before = this.chess.fen();
       const m = playUci(this.chess, msg.uci);
       if (!m) return;
@@ -691,6 +691,7 @@ class GameCtl {
       if (this.clock && msg.clock != null) { this.clock[m.color] = msg.clock + (this.hist.length >= 2 ? this.clock.inc : 0); this.renderClock(); }
     } else if (msg.t === "resign") this.finish(this.userColor === "w" ? "1-0" : "0-1", "соперник сдался");
     else if (msg.t === "timeout") this.timeout(msg.loser);
+    else if (msg.t === "left") this.finish(this.userColor === "w" ? "0-1" : "1-0", "вы были без связи больше минуты");
     else if (msg.t === "abort") { if (!this.result) { this.result = { result: "*", reason: "прервана" }; this.stopClock(); toast("Соперник прервал партию"); this.renderAll(); } }
     else if (msg.t === "draw") {
       confirmBox(`${esc(this.player(this.userColor === "w" ? "b" : "w").name)} предлагает ничью. Согласиться?`, "Ничья", "Играть дальше").then(ok => {
@@ -709,15 +710,19 @@ class GameCtl {
     } else if (msg.t === "rematch-yes") this.net.startRematch?.(this.cfg);
     else if (msg.t === "rematch-no") toast("Соперник отказался от реванша");
   }
-  netLost() {
+  netLost(selfDown) {
     if (this.result) return;
-    this.coachSay("Соперник отключился. Если он не вернётся за минуту, победа засчитается вам.", "📡");
     clearTimeout(this.lostT);
+    // связь пропала у нас самих — победу сопернику не отдаём и себе не засчитываем
+    if (selfDown) { this.coachSay("Пропала связь с сервером. Восстанавливаю соединение…", "📡"); return; }
+    this.coachSay("Соперник отключился. Если он не вернётся за минуту, победа засчитается вам.", "📡");
     this.lostT = setTimeout(() => {
-      if (!this.result && this.net && !this.net.alive) this.finish(this.userColor === "w" ? "1-0" : "0-1", "соперник покинул партию");
+      if (this.result || !this.net || this.net.alive) return;
+      this.net.send({ t: "left" });    // дойдёт, если соперник вернётся, — у обоих будет один итог
+      this.finish(this.userColor === "w" ? "1-0" : "0-1", "соперник покинул партию");
     }, 60000);
   }
-  netBack() { clearTimeout(this.lostT); this.coachSay("Соперник снова на связи.", "📡"); }
+  netBack() { clearTimeout(this.lostT); this.coachSay("Связь восстановлена — играем дальше.", "📡"); }
 
   /* --- сохранение незаконченной партии --- */
   persist() {
@@ -1004,6 +1009,8 @@ class GameCtl {
       engine.cancel("bot");
       this.thinking = false;
     }
+    // ушли с экрана законченной онлайн-партии — закрываем связь (кроме реванша: там тот же сеанс)
+    if (this.mode === "online" && this.result && (G === this || G.net !== this.net)) this.net?.close?.();
     this.board && this.board.destroy();
   }
 }
@@ -1012,7 +1019,7 @@ class GameCtl {
 export function botPlayer(bot) { return { name: bot.name, av: bot.av, rating: bot.elo, bot: bot.id }; }
 
 export function startGame(cfg) {
-  if (G && G.mode === "online" && cfg.mode !== "online") G.net?.close?.();
+  if (G && G.net && G.net !== cfg.net) G.net.close?.();
   G = new GameCtl(cfg);
   if (cfg.intro) G.coachIntro = cfg.intro;
   G.persist();

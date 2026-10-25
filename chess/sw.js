@@ -2,7 +2,7 @@
    Играть, решать задачи и разбирать партии можно без связи: оболочка,
    движок Stockfish, задачи и уроки кэшируются целиком. Онлайн-партии
    и ИИ-тренер ходят в сеть напрямую, мимо кэша. */
-const CACHE = "chess-v2";
+const CACHE = "chess-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -19,12 +19,14 @@ const SHELL = [
   "./js/coach.js",
   "./js/engine.js",
   "./js/learn.js",
+  "./js/mqtt.js",
   "./js/lecturedata.js",
   "./js/lectures.js",
   "./js/online.js",
   "./js/play.js",
   "./js/profile.js",
   "./js/puzzles.js",
+  "./js/relay.js",
   "./js/review.js",
   "./js/router.js",
   "./js/sound.js",
@@ -38,7 +40,6 @@ const SHELL = [
   "./data/openings.js",
   "./data/puzzles.js",
   "./vendor/chess.js",
-  "./vendor/peerjs.min.js",
   "./vendor/anthropic-sdk.mjs",
   "./vendor/stockfish/stockfish-18-lite-single.js",
   "./vendor/stockfish/stockfish-18-lite-single.wasm",
@@ -81,7 +82,8 @@ const SHELL = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: "reload" — мимо HTTP-кэша браузера, чтобы новая версия не собралась из старых файлов
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
@@ -94,7 +96,7 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   const req = e.request;
-  // чужие сайты (сервер связи, Anthropic) — напрямую в сеть, мимо кэша
+  // чужие сайты (серверы связи, Anthropic) — напрямую в сеть, мимо кэша
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
 
   // Навигация: мгновенно отдаём кэш, параллельно тянем свежую версию —
