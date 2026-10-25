@@ -2,7 +2,7 @@
    и задачи из собственных партий. Первый ход в задаче — ошибка соперника,
    его приложение делает само, дальше ищешь лучшее продолжение. */
 import { $, $$, esc, modal, plural, today, seeded, hashId, sleep, fmtClock } from "./util.js";
-import { S, save, activity, setActive, unlock, checkStreakAch } from "./store.js";
+import { S, save, activity, setActive, unlock, checkStreakAch, addCard } from "./store.js";
 import { Board } from "./board.js";
 import { makeChess, dests, playUci, checkSquare, figSan, sanList, parseUci } from "./chessutil.js";
 import { play as snd, moveSound } from "./sound.js";
@@ -97,6 +97,7 @@ function record(p, ok, { rated = true, mode = "rated" } = {}) {
     if (first) { s[1]++; if (ok) s[0]++; }
   }
   if (!ok && !P.retry.includes(p.id)) P.retry.push(p.id);
+  if (!ok && mode !== "mine") addCard("pz:" + p.id, "pz", p.id);
   if (ok && mode === "retry") P.retry = P.retry.filter(x => x !== p.id);
   if (ok) { P.streak = (P.streak || 0) + 1; P.bestStreak = Math.max(P.bestStreak || 0, P.streak); }
   else P.streak = 0;

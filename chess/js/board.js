@@ -216,7 +216,7 @@ export class Board {
       cl.toggle("occ", this.pos.has(sq));
       cl.toggle("hover", this.hover === sq);
       cl.toggle("star", this.stars.includes(sq));
-      for (const m of ["hl-red", "hl-green", "hl-blue", "hl-yellow"]) cl.toggle(m, this.marks[sq] === m);
+      for (const m of ["hl-red", "hl-green", "hl-blue", "hl-yellow", "hl-soft"]) cl.toggle(m, this.marks[sq] === m);
     }
   }
 

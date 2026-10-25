@@ -5,7 +5,10 @@ import { route, render, setNavHook, go } from "./router.js";
 import { miniBoard } from "./board.js";
 import { viewPlayHub, viewBots, viewGame, viewLocal, resumeSaved, suggestBot } from "./play.js";
 import { viewPuzzles, viewPuzzle, viewRush, dailyPuzzle } from "./puzzles.js";
-import { viewLearn, viewLesson, viewBasics, viewOpenings, viewOpening, viewPractice, nextLesson } from "./learn.js";
+import { viewLearn, viewLesson, viewBasics, viewOpenings, viewOpening, viewPractice, nextLesson, viewMethods } from "./learn.js";
+import { viewLecture } from "./lectures.js";
+import { viewSrs, dueCount } from "./srs.js";
+import { viewTrainers, viewTrainer } from "./trainers.js";
 import { viewAnalysis, viewReview } from "./analysis.js";
 import { viewCoach, todayPlan } from "./coach.js";
 import { viewOnline } from "./online.js";
@@ -20,6 +23,7 @@ const GROUP = {
   home: "home", play: "play", bots: "play", local: "play", online: "play", game: "play", history: "play", review: "play",
   puzzles: "puzzles", puzzle: "puzzles", rush: "puzzles",
   learn: "learn", lesson: "learn", basics: "learn", openings: "learn", opening: "learn", practice: "learn",
+  lecture: "learn", srs: "learn", trainers: "learn", trainer: "learn", methods: "learn",
   coach: "coach", analysis: "analysis", profile: "profile", settings: "settings",
 };
 
@@ -45,6 +49,7 @@ function viewHome(el) {
   const daily = dailyPuzzle();
   const bot = suggestBot();
   const les = nextLesson();
+  const due = dueCount();
   const r = S.ratings;
   el.innerHTML = `
     <div class="topbar mob-only"><h1>♞ Шахматы</h1><div class="sp"></div>
@@ -71,13 +76,15 @@ function viewHome(el) {
         <div class="ts">${done}/${plan.length} выполнено</div><div class="bar" style="margin-top:6px"><i style="width:${done / plan.length * 100}%"></i></div></div></button>
       <button class="tile" data-go="puzzle/daily"><div style="width:64px;flex-shrink:0">${daily ? miniBoard(daily.fen, S.settings.pieces, daily.fen.split(" ")[1] === "w") : ""}</div>
         <div><div class="tt">Задача дня</div><div class="ts">${S.puzzles.daily[daily?.date]?.solved ? "✅ Решена" : `Рейтинг ${daily ? daily.rating : ""}`}</div></div></button>
-      <button class="tile" data-go="${les ? les.route : "learn"}"><div class="ti">🎓</div><div><div class="tt">${les ? esc(les.title) : "Обучение"}</div><div class="ts">${les ? "Следующий урок" : "Все уроки пройдены!"}</div></div></button>
+      ${due ? `<button class="tile" data-go="srs" style="background:linear-gradient(135deg,#3b5a24,#262421 80%)"><div class="ti">🔁</div><div><div class="tt">Повторение</div><div class="ts">${due} ${plural(due, "позиция ждёт", "позиции ждут", "позиций ждут")} повторения</div></div></button>` : ""}
+      <button class="tile" data-go="${les ? les.route : "learn"}"><div class="ti">🎓</div><div><div class="tt">${les ? esc(les.title) : "Обучение"}</div><div class="ts">${les ? (les.lecture ? "Следующая лекция" : "Следующий урок") : "Учебный план пройден!"}</div></div></button>
       <button class="tile" data-go="bots"><div class="ti">${bot.av}</div><div><div class="tt">Соперник по силе</div><div class="ts">${esc(bot.name)} · ${bot.elo}</div></div></button>
     </div>
     <div class="sec-title">Тренировка</div>
     <div class="tiles">
       <button class="tile" data-go="puzzle/rated"><div class="ti">🧩</div><div><div class="tt">Задачи</div><div class="ts">Рейтинг ${r.puzzle.r}</div></div></button>
       <button class="tile" data-go="rush"><div class="ti">🏃</div><div><div class="tt">Штурм</div><div class="ts">Рекорд ${Math.max(S.rush.best.r3, S.rush.best.r5, S.rush.best.surv)}</div></div></button>
+      <button class="tile" data-go="trainers"><div class="ti">🏋️</div><div><div class="tt">Тренажёры</div><div class="ts">Координаты, память, мотивы, визуализация</div></div></button>
       <button class="tile" data-go="openings"><div class="ti">📖</div><div><div class="tt">Дебюты</div><div class="ts">Изучить и потренировать</div></div></button>
       <button class="tile" data-go="analysis"><div class="ti">🔬</div><div><div class="tt">Анализ</div><div class="ts">Доска с движком</div></div></button>
     </div>
@@ -132,6 +139,11 @@ route("basics", viewBasics);
 route("openings", viewOpenings);
 route("opening", viewOpening);
 route("practice", viewPractice);
+route("lecture", viewLecture);
+route("srs", viewSrs);
+route("trainers", viewTrainers);
+route("trainer", viewTrainer);
+route("methods", viewMethods);
 route("analysis", viewAnalysis);
 route("review", viewReview);
 route("coach", viewCoach);
