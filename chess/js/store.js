@@ -21,6 +21,9 @@ const DEFAULTS = () => ({
   games: [],
   puzzles: { done: {}, retry: [], themes: {}, daily: {}, streak: 0, bestStreak: 0, history: [] },
   lessons: { done: {}, steps: {} },
+  lectures: {},
+  srs: { cards: {}, log: [] },
+  trainers: {},
   openings: {},
   endgames: {},
   bots: { beaten: {}, played: {} },
@@ -127,6 +130,12 @@ export const ACHIEVEMENTS = [
   { id: "rush-30", i: "🚀", t: "Ураган", s: "Решить 30+ задач в штурме" },
   { id: "lesson-1", i: "🎓", t: "Ученик", s: "Пройти первый урок" },
   { id: "lessons-10", i: "📚", t: "Отличник", s: "Пройти 10 уроков" },
+  { id: "lecture-1", i: "🏛", t: "Слушатель", s: "Пройти первую лекцию" },
+  { id: "lectures-5", i: "🎓", t: "Студент", s: "Пройти 5 лекций" },
+  { id: "lectures-all", i: "🧑‍🎓", t: "Выпускник", s: "Пройти все лекции" },
+  { id: "srs-100", i: "🔁", t: "Память шахматиста", s: "Сделать 100 повторений" },
+  { id: "trainer-1", i: "🏋️", t: "Тренажёр", s: "Позаниматься в каждом тренажёре" },
+  { id: "classic-1", i: "📜", t: "Ученик мастеров", s: "Пройти классическую партию в «Угадай ход»" },
   { id: "opening-1", i: "📖", t: "Дебютант", s: "Выучить вариант дебюта" },
   { id: "endgame-1", i: "🏁", t: "Техника", s: "Пройти позицию эндшпиля" },
   { id: "online-1", i: "🌐", t: "По сети", s: "Сыграть партию онлайн" },
@@ -148,6 +157,15 @@ export function checkStreakAch() {
   if (n >= 3) unlock("days-3");
   if (n >= 7) unlock("days-7");
   if (n >= 30) unlock("days-30");
+}
+
+/* --- карточки интервального повторения (расписание — в srs.js) --- */
+export function addCard(id, kind, ref, { dueNow = false } = {}) {
+  const cards = S.srs.cards;
+  if (cards[id]) return false;
+  cards[id] = { id, kind, ref, added: Date.now(), due: Date.now() + (dueNow ? 0 : 864e5), s: 0, d: 0, reps: 0, lapses: 0, last: 0 };
+  save();
+  return true;
 }
 
 /* --- рейтинги: Эло с K, убывающим по числу партий --- */

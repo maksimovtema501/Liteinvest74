@@ -5,6 +5,7 @@ import { S, save, unlock, streakDays } from "./store.js";
 import { go } from "./router.js";
 import { THEMES, themeCount, dailyPuzzle, puzzleById } from "./puzzles.js";
 import { nextLesson } from "./learn.js";
+import { dueCount } from "./srs.js";
 import { suggestBot } from "./play.js";
 import { BOTS } from "./bots.js";
 import { unpackCls, phaseOf } from "./review.js";
@@ -43,13 +44,16 @@ export function todayPlan() {
   const reviewed = S.games.some(g => g.review && isToday(g.review.ts));
   const lessonToday = Object.values(S.lessons.done).some(isToday) || (a.lessons || 0) > 0;
   const bot = suggestBot();
+  const due = dueCount();
+  const srsToday = S.srs.log.some(l => isToday(l.ts));
   const steps = [
     { id: "daily", i: "📅", t: "Задача дня", s: "Разминка для головы", go: "puzzle/daily", done: !!(dp && S.puzzles.daily[dp.date]) },
     { id: "theme", i: "🧩", t: `5 задач: ${THEMES[theme]?.[0] || theme}`, s: `Решено сегодня: ${Math.min(5, themeToday)}/5`, go: "puzzle/theme/" + theme, done: themeToday >= 5 },
-    { id: "lesson", i: "🎓", t: les ? les.title : "Повторить дебют", s: les ? "Урок из программы" : "Тренажёр дебютов", go: les ? les.route : "openings", done: lessonToday },
+    { id: "lesson", i: "🎓", t: les ? les.title : "Повторить дебют", s: les ? (les.lecture ? "Лекция из учебного плана" : "Урок из учебного плана") : "Тренажёр дебютов", go: les ? les.route : "openings", done: lessonToday },
     { id: "game", i: bot.av, t: `Партия с ботом «${bot.name}»`, s: `Рейтинг ${bot.elo} · тренер подсказывает`, go: "bots", done: (a.games || 0) > 0 },
     { id: "review", i: "🔍", t: "Разбор партии", s: "Найдите свои ошибки", go: S.games[0] && !S.games[0].review ? "review/" + S.games[0].id : "history", done: reviewed },
   ];
+  if (due || srsToday) steps.splice(1, 0, { id: "srs", i: "🔁", t: "Повторение", s: due ? `Ждут повторения: ${due}` : "Все карточки повторены", go: "srs", done: !due && srsToday });
   if (steps.every(s => s.done)) unlock("plan-1");
   return steps;
 }

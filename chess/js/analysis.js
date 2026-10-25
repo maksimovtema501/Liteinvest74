@@ -1,7 +1,7 @@
 /* Доска анализа (движок, варианты, расстановка, PGN) и разбор партии:
    оценка каждого хода, график, точность, советы тренера и ИИ-тренер. */
 import { $, $$, esc, modal, toast, copyText, scoreOf, winPct, fmtEval, MATE } from "./util.js";
-import { S, save, setActive, unlock } from "./store.js";
+import { S, save, setActive, unlock, addCard } from "./store.js";
 import { Board, parseFen, pieceUrl } from "./board.js";
 import { Chess, makeChess, dests, playUci, checkSquare, sanLine, figSan, buildPgn, parseInput, openingOf, openingRu, bookMoves, START_FEN } from "./chessutil.js";
 import { engine, liveEngine } from "./engine.js";
@@ -429,6 +429,9 @@ function runReview(el, g, moves) {
     const cl = classify(an, { coachStyle: S.settings.coachStyle });
     const acc = accuracy(an, cl);
     g.review = { ...packReview(an, cl, acc), cm: cl.map(c => c.comment), ts: Date.now() };
+    // свои ошибки — в интервальное повторение
+    if (g.user) cl.map((c, i) => ({ c, i })).filter(({ c }) => (c.white ? "w" : "b") === g.user && ["mistake", "blunder", "miss"].includes(c.cls) && c.bestUci)
+      .slice(0, 6).forEach(({ c, i }) => addCard(`gm:${g.id}:${i}`, "gm", { g: g.id, i, best: c.bestUci }));
     unlock("review-1");
     if (g.user && cl.some(c => c.cls === "brilliant" && (c.white ? "w" : "b") === g.user)) unlock("brilliant");
     if (g.user && acc[g.user] >= 90 && moves.length >= 40) unlock("acc-90");

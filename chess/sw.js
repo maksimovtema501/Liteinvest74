@@ -2,7 +2,7 @@
    Играть, решать задачи и разбирать партии можно без связи: оболочка,
    движок Stockfish, задачи и уроки кэшируются целиком. Онлайн-партии
    и ИИ-тренер ходят в сеть напрямую, мимо кэша. */
-const CACHE = "chess-v1";
+const CACHE = "chess-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -19,6 +19,8 @@ const SHELL = [
   "./js/coach.js",
   "./js/engine.js",
   "./js/learn.js",
+  "./js/lecturedata.js",
+  "./js/lectures.js",
   "./js/online.js",
   "./js/play.js",
   "./js/profile.js",
@@ -26,8 +28,12 @@ const SHELL = [
   "./js/review.js",
   "./js/router.js",
   "./js/sound.js",
+  "./js/srs.js",
   "./js/store.js",
+  "./js/trainers.js",
   "./js/util.js",
+  "./data/classics.js",
+  "./data/lectures.js",
   "./data/lessons.js",
   "./data/openings.js",
   "./data/puzzles.js",

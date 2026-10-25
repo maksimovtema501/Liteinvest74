@@ -11,6 +11,8 @@ import { botById } from "./bots.js";
 import { play as snd, moveSound } from "./sound.js";
 import { go } from "./router.js";
 import { FILES } from "./util.js";
+import { LECTURES, LECTURE_SECTIONS } from "./lecturedata.js";
+import { addCard, dueCount, cardCount } from "./srs.js";
 
 const lessonById = id => LESSONS.find(l => l.id === id);
 export const routeOf = l => (l.type === "stars" || l.type === "drill" ? "basics/" : l.type === "theme" ? "lesson/" : "practice/") + l.id;
@@ -29,30 +31,87 @@ function markDone(id) {
 /* уроки, видимые в программе: тема без задач в базе показывается, только если есть упражнения */
 function visible(l) { return l.type !== "theme" || themeCount(l.theme) >= 3 || (l.drills && l.drills.length); }
 
+/* учебный план: уроки и лекции вперемешку, от простого к сложному */
+const ORDER = [["lesson", "basics"], ["lec", "strategy"], ["lesson", "tactics"], ["lec", "tactics"], ["lesson", "mates"],
+  ["lesson", "endgames"], ["lec", "endtheory"], ["lec", "opentheory"], ["lesson", "openings"], ["lec", "learning"]];
+
 export function nextLesson() {
-  for (const l of LESSONS) if (visible(l) && !S.lessons.done[l.id]) return { title: l.t, route: routeOf(l) };
-  for (const o of OPENINGS_LIB) if (!(S.openings[o.id] || {}).learned) return { title: o.t, route: "opening/" + o.id };
+  for (const [kind, sec] of ORDER) {
+    if (kind === "lesson" && sec === "openings") {
+      for (const o of OPENINGS_LIB) if (!(S.openings[o.id] || {}).learned) return { title: o.t, route: "opening/" + o.id };
+      continue;
+    }
+    if (kind === "lesson") { for (const l of LESSONS) if (l.sec === sec && visible(l) && !S.lessons.done[l.id]) return { title: l.t, route: routeOf(l) }; }
+    else for (const l of LECTURES) if (l.sec === sec && !S.lectures[l.id]?.done) return { title: l.t, route: "lecture/" + l.id, lecture: true };
+  }
   return null;
 }
 
 export function viewLearn(el) {
   const done = id => !!S.lessons.done[id];
+  const due = dueCount(), cards = cardCount();
+  const lecDone = LECTURES.filter(l => S.lectures[l.id]?.done).length;
+  const next = nextLesson();
+  const sectionHtml = ([kind, id]) => {
+    if (kind === "lec") {
+      const sec = LECTURE_SECTIONS.find(x => x.id === id);
+      const list = LECTURES.filter(l => l.sec === id);
+      const n = list.filter(l => S.lectures[l.id]?.done).length;
+      return `<div class="sec-title">${sec.i} Лекции · ${sec.t} · ${n}/${list.length}</div>
+        <div class="tiles">${list.map(l => { const r = S.lectures[l.id]; return `<button class="tile" data-go="lecture/${l.id}"><div class="ti">${l.i}</div>
+          <div style="flex:1;min-width:0"><div class="tt">${esc(l.t)}</div><div class="ts">Интерактивная лекция · ~${l.min} мин · ${l.steps.length} шагов</div></div>
+          <div class="tr">${r?.done ? `<span class="green" style="font-size:20px">✓</span><div class="tiny">${r.right}/${r.total}</div>` : ""}</div></button>`; }).join("")}</div>`;
+    }
+    const sec = SECTIONS.find(x => x.id === id);
+    if (id === "openings") {
+      const n = OPENINGS_LIB.filter(o => (S.openings[o.id] || {}).learned).length;
+      return `<div class="sec-title">${sec.i} ${sec.t} · ${n}/${OPENINGS_LIB.length}</div>
+        <div class="tiles"><button class="tile" data-go="openings"><div class="ti">📖</div><div><div class="tt">Тренажёр дебютов</div><div class="ts">${sec.s}</div></div><div class="tr">${n}/${OPENINGS_LIB.length}</div></button></div>`;
+    }
+    const list = LESSONS.filter(l => l.sec === id && visible(l));
+    const n = list.filter(l => done(l.id)).length;
+    return `<div class="sec-title">${sec.i} ${sec.t} · ${n}/${list.length}</div>
+      <div class="tiles">${list.map(l => `<button class="tile" data-go="${routeOf(l)}"><div class="ti">${l.i}</div>
+        <div style="flex:1;min-width:0"><div class="tt">${esc(l.t)}</div><div class="ts">${lessonSub(l)}</div></div>
+        <div class="tr">${done(l.id) ? `<span class="green" style="font-size:20px">✓</span>` : ""}</div></button>`).join("")}</div>`;
+  };
   el.innerHTML = `<div class="topbar"><h1>Обучение</h1></div>
-    ${SECTIONS.map(sec => {
-      if (sec.id === "openings") {
-        const n = OPENINGS_LIB.filter(o => (S.openings[o.id] || {}).learned).length;
-        return `<div class="sec-title">${sec.i} ${sec.t} · ${n}/${OPENINGS_LIB.length}</div>
-          <div class="tiles"><button class="tile" data-go="openings"><div class="ti">📖</div><div><div class="tt">Дебюты</div><div class="ts">${sec.s}</div></div><div class="tr">${n}/${OPENINGS_LIB.length}</div></button></div>`;
-      }
-      const list = LESSONS.filter(l => l.sec === sec.id && visible(l));
-      const n = list.filter(l => done(l.id)).length;
-      return `<div class="sec-title">${sec.i} ${sec.t} · ${n}/${list.length}</div>
-        <div class="tiles">${list.map(l => `<button class="tile" data-go="${routeOf(l)}"><div class="ti">${l.i}</div>
-          <div style="flex:1;min-width:0"><div class="tt">${esc(l.t)}</div><div class="ts">${lessonSub(l)}</div></div>
-          <div class="tr">${done(l.id) ? `<span class="green" style="font-size:20px">✓</span>` : ""}</div></button>`).join("")}</div>`;
-    }).join("")}`;
+    <div class="tiles">
+      <button class="tile" data-go="srs" style="${due ? "background:linear-gradient(135deg,#3b5a24,#262421 80%)" : ""}"><div class="ti">🔁</div><div style="flex:1;min-width:0"><div class="tt">Повторение</div>
+        <div class="ts">${due ? `Пора повторить: ${due} ${plural(due, "позиция", "позиции", "позиций")}` : cards ? "На сегодня всё повторено" : "Ключевые позиции из уроков и партий"}</div></div><div class="tr">${due ? `<b style="font-size:20px;color:#fff">${due}</b>` : ""}</div></button>
+      ${next ? `<button class="tile" data-go="${next.route}"><div class="ti">▶️</div><div style="flex:1;min-width:0"><div class="tt">Продолжить: ${esc(next.title)}</div><div class="ts">Следующий шаг учебного плана</div></div></button>` : ""}
+      <button class="tile" data-go="trainers"><div class="ti">🏋️</div><div><div class="tt">Тренажёры</div><div class="ts">Координаты, память, мотивы, визуализация, ходы мастеров</div></div></button>
+      <button class="tile" data-go="methods"><div class="ti">🧪</div><div><div class="tt">Как устроено обучение</div><div class="ts">Методики и исследования · лекций пройдено ${lecDone}/${LECTURES.length}</div></div></button>
+    </div>
+    ${ORDER.map(sectionHtml).join("")}`;
   $$("[data-go]", el).forEach(b => b.onclick = () => go(b.dataset.go));
 }
+
+/* страница о методиках */
+export function viewMethods(el) {
+  const rows = [
+    ["Активное вспоминание", "Задачи, упражнения «ваш ход» и тренажёр дебютов: решаете сами, а не читаете решение", "Roediger, Karpicke 2006"],
+    ["Интервальное повторение", "Раздел «Повторение»: расписание строит FSRS (алгоритм Anki), позиция возвращается, когда вероятность вспомнить падает до 90%", "Cepeda и др. 2006; Ye и др. 2022"],
+    ["Перемешивание", "Повторение и задачи идут вперемешку по темам и источникам; тема сначала вводится блоком в лекции", "Rohrer, Taylor 2007"],
+    ["Претест", "Лекция начинается с вопроса до объяснения: даже неверная попытка улучшает запоминание", "Kornell, Hays, Bjork 2009"],
+    ["Разобранный пример → самостоятельно", "В лекции сначала пример с комментариями, потом ход с подсказкой, потом без", "Sweller 1988; Renkl, Atkinson 2003"],
+    ["Самообъяснение «почему»", "Проверочные вопросы о плане и причине хода, объяснение к каждому ответу", "Chi и др. 1994"],
+    ["Узнавание образов", "Матовые картины, «Узнай мотив», «Запомни позицию»: сила мастера — тысячи знакомых «блоков»", "de Groot 1946; Chase, Simon 1973; Gobet, Simon 1996"],
+    ["Визуализация", "Тренажёр «ход в уме»: расчёт без передвижения фигур", "Котов «Думай как гроссмейстер»"],
+    ["Целенаправленная практика", "План тренера выбирает слабую тему; разбор партий и «Повторить ошибки» — работа над своими ошибками", "Ericsson и др. 1993; Charness и др. 2005"],
+    ["Немедленная обратная связь", "Тренер оценивает каждый ход в партии, задачи и упражнения сразу показывают ответ и объяснение", "Hattie, Timperley 2007"],
+    ["Угадай ход мастера", "Классический метод: играть за мастера и сравнивать ходы, движок оценивает альтернативы", "Котов; Пандольфини"],
+  ];
+  el.innerHTML = `<div class="topbar"><button class="back" onclick="history.back()">←</button><h1>Как устроено обучение</h1></div>
+    <div class="card prose"><p>В «Шахматах» — только то, что подтверждено исследованиями обучения и шахматного мастерства. Лучший предиктор роста силы — серьёзная самостоятельная работа: решать, разбирать, повторять (Charness и др. 2005). Быстрые партии без разбора дают меньше.</p></div>
+    <div class="col" style="margin-top:12px">${rows.map(([t, how, ref]) => `<div class="card"><div class="b">${t}</div><div class="small" style="margin-top:4px">${how}</div><div class="tiny muted" style="margin-top:4px">${ref}</div></div>`).join("")}</div>
+    <div class="card" style="margin-top:12px"><h2>Как заниматься</h2><div class="prose small"><ul>
+      <li>Каждый день: «Повторение» (5–10 минут), задачи, один шаг учебного плана.</li>
+      <li>Каждую серьёзную партию — разобрать, ошибки уйдут в повторение.</li>
+      <li>Играйте медленнее: 15 | 10 полезнее блица для обучения.</li>
+      <li>Ошибайтесь смело: попытка вспомнить, даже неудачная, учит лучше перечитывания.</li></ul></div></div>`;
+}
+
 function lessonSub(l) {
   if (l.type === "stars") return `${l.levels.length} ${plural(l.levels.length, "уровень", "уровня", "уровней")}`;
   if (l.type === "drill") return `${l.drills.length} ${plural(l.drills.length, "упражнение", "упражнения", "упражнений")}`;
@@ -191,7 +250,7 @@ function bindBack(el) {
 }
 
 /* упражнения «найди ход» — для правил и для тактических тем */
-function drillRunner(el, drills, { onAllDone, boardSel = "#lvBoard", infoSel = "#lvInfo" }) {
+function drillRunner(el, drills, { onAllDone, boardSel = "#lvBoard", infoSel = "#lvInfo", lessonId = null }) {
   let di = 0, runner = null;
   const doneSet = new Set();
   const next = () => {
@@ -210,6 +269,7 @@ function drillRunner(el, drills, { onAllDone, boardSel = "#lvBoard", infoSel = "
       onRight: () => { $("#drMsg", el).innerHTML = `<span class="green">Верно! Продолжайте.</span>`; },
       onSolved: () => {
         doneSet.add(di);
+        if (lessonId && !d.rule) addCard(`drill:${lessonId}:${di}`, "drill", { l: lessonId, i: di });
         $("#drMsg", el).innerHTML = `<span class="green b">✓ ${esc(d.after || "Верно!")}</span>`;
         const last = doneSet.size === drills.length;
         $("#drHint", el).outerHTML = last ? `<button class="btn sm primary" id="drNext">Готово</button>` : `<button class="btn sm primary" id="drNext">Дальше →</button>`;
@@ -236,7 +296,7 @@ export function viewBasics(el, id) {
   if (l.type === "stars") return starsLesson(el, l);
   el.innerHTML = lessonFrame(l, `<div id="lvInfo"></div>`, `<div id="lvBoard"></div>`);
   bindBack(el);
-  return drillRunner(el, l.drills, { onAllDone: () => { markDone(l.id); toast("Урок пройден! ✓"); go("learn"); } });
+  return drillRunner(el, l.drills, { lessonId: l.id, onAllDone: () => { markDone(l.id); toast("Урок пройден! ✓"); go("learn"); } });
 }
 
 /* тактическая тема: объяснение, упражнения, задачи из базы */
@@ -265,7 +325,7 @@ export function viewLesson(el, id) {
   bindBack(el);
   $("#toPz", el).onclick = () => go("puzzle/theme/" + l.theme);
   check();
-  return drillRunner(el, l.drills, { onAllDone: () => {
+  return drillRunner(el, l.drills, { lessonId: l.id, onAllDone: () => {
     S.lessons.steps[l.id] = 1; save(); check();
     toast(S.lessons.done[l.id] ? "Урок пройден! ✓" : `Упражнения пройдены. Теперь решите ${need} задач на тему.`);
     if (themeCount(l.theme)) go("puzzle/theme/" + l.theme); else go("learn");
@@ -439,6 +499,7 @@ export function viewOpening(el, id) {
     st.runs++;
     const d = today();
     if (!errors && !st.days.includes(d)) { st.days.push(d); st.perfect = st.days.length; }
+    if (!errors) sans.forEach((_, p) => { if (p % 2 === (o.user === "w" ? 0 : 1)) addCard(`op:${o.id}:${p}`, "op", { o: o.id, ply: p }); });
     const learnedNow = !st.learned && st.perfect >= 2;
     if (learnedNow) { st.learned = Date.now(); unlock("opening-1"); }
     activity("lessons");
