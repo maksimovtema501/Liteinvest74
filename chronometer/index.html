@@ -109,6 +109,14 @@ textarea{min-height:110px;resize:vertical;font-family:ui-monospace,Menlo,monospa
 .nbtn .x{position:absolute;top:-1px;right:-1px;width:34px;height:34px;border-radius:0 13px 0 13px;
          color:#fca5a5;font-size:16px;line-height:34px}
 .nbtn:active{transform:scale(.96)}
+/* отмеченный участник — тонкая красная рамка, видно и до, и после отсечки */
+.nbtn.flag{border-color:var(--red)}
+
+/* флажки в протоколе */
+.flagcol{width:34px;text-align:center;padding-left:2px;padding-right:2px}
+.flagbtn{font-size:15px;line-height:1;color:#334155;padding:4px 6px}
+.flagbtn.on{color:var(--red)}
+tr.flagged td{background:rgba(239,68,68,.07)}
 
 /* списки / таблицы */
 .lst{display:flex;flex-direction:column;gap:1px;background:var(--line);border-radius:12px;overflow:hidden}
@@ -224,6 +232,7 @@ th.col-active{color:var(--cyan)}
           <button data-act="resmode" data-v="groups">По группам</button>
         </div>
       </div>
+      <div id="flagBox"></div>
     </div>
     <div id="finishBox" style="margin-bottom:14px"></div>
     <div id="resultsBody"></div>
@@ -358,7 +367,7 @@ th.col-active{color:var(--cyan)}
       <div class="hint">
         Хронометр — офлайн-приложение. Данные хранятся только на этом устройстве
         и не требуют интернета: можно работать в лесу и на морозе.<br><br>
-        Версия <span id="appVer">3.9</span>
+        Версия <span id="appVer">4.0</span>
       </div>
     </div>
   </section>
@@ -1018,8 +1027,10 @@ function renderTiming() {
           ? (doneCps.length ? doneCps[doneCps.length - 1] : null)
           : (elapsedAt(a, S.currentCp, oi) != null ? S.currentCp : null);
 
+        const flag = a.flag ? " flag" : "";
+
         if (cp == null) {
-          return '<button class="nbtn" data-act="punch" data-v="' + a.id + '">' +
+          return '<button class="nbtn' + flag + '" data-act="punch" data-v="' + a.id + '">' +
                  '<div class="n">' + esc(a.bib) + '</div>' +
                  '<div class="s">' + esc(a.name || "") + '</div></button>';
         }
@@ -1036,7 +1047,7 @@ function renderTiming() {
         // Когда все круги пройдены, тапать больше некуда — плитка становится неактивной.
         const more = S.race.autoLap && doneCps.length < cps.length;
         const act = more ? ' data-act="punch" data-v="' + a.id + '" role="button" tabindex="0"' : "";
-        return '<div class="nbtn done"' + act + '>' +
+        return '<div class="nbtn done' + flag + '"' + act + '>' +
                '<div class="n">' + esc(a.bib) + '</div>' +
                '<div class="s">' + (label ? label + " · " : place) + gap + '</div>' +
                '<button class="x" data-act="unpunch" data-v="' + a.id + '" aria-label="Стереть">✕</button>' +
@@ -1107,6 +1118,15 @@ function renderResults() {
 
   $("finishBox").innerHTML = finishBoxHTML();
 
+  // отметки: сколько стоит и как снять разом
+  const flagged = S.athletes.filter(a => a.flag).length;
+  $("flagBox").innerHTML = flagged
+    ? '<div class="row" style="margin-top:14px">' +
+        '<span class="chip" style="color:#fca5a5;border-color:#7f1d1d">⚑ отмечено: ' + flagged + '</span>' +
+        '<button class="btn sm" data-act="unflagall" style="margin-left:auto">Снять все</button>' +
+      '</div>'
+    : '<div class="hint" style="margin-top:12px">Флажок в левой колонке отмечает нужных участников — их плитки на хронометраже обводятся красным.</div>';
+
   // два независимых пути наружу: «Поделиться» надёжнее на iPhone,
   // «Сохранить» — на Android. Копирование остаётся на случай, если оба не вышли.
   $("exportBox").innerHTML =
@@ -1128,13 +1148,15 @@ function renderResults() {
   const table = (athletes, showCat) => {
     const cache = cps.map((_, i) => ranking(i, athletes));
     const head =
-      '<tr><th class="num">М</th><th class="num">№</th><th>Участник</th>' +
+      '<tr><th class="flagcol">⚑</th><th class="num">М</th><th class="num">№</th><th>Участник</th>' +
       (showCat ? "<th>Группа</th>" : "") +
       cps.map((c, i) => '<th class="num' + (i === active ? " col-active" : "") + '" colspan="2">' +
         esc(c) + "</th>").join("") + "</tr>";
     const body = cache[active].map(r => {
       const a = r.a;
-      return "<tr>" +
+      return '<tr' + (a.flag ? ' class="flagged"' : "") + ">" +
+        '<td class="flagcol"><button class="flagbtn' + (a.flag ? " on" : "") +
+          '" data-act="flag" data-v="' + a.id + '" aria-label="Отметить">⚑</button></td>' +
         '<td class="num">' + (r.place || '<span class="st-none">—</span>') + "</td>" +
         '<td class="num" style="color:var(--orange);font-weight:700">' + esc(a.bib) + "</td>" +
         "<td>" + esc(a.name || "") + "</td>" +
@@ -1528,6 +1550,21 @@ document.addEventListener("click", e => {
     case "unpunch": e.stopPropagation(); unpunch(v); break;
     case "rescp": S.ui.resCp = +v; save(); renderResults(); break;
     case "resmode": S.ui.resMode = v; save(); renderResults(); break;
+
+    case "flag": {
+      const a = S.athletes.find(x => x.id === v);
+      if (!a) break;
+      a.flag = !a.flag;
+      vibrate(15);
+      save(); renderResults();
+      break;
+    }
+
+    case "unflagall":
+      S.athletes.forEach(a => { delete a.flag; });
+      save(); renderResults();
+      toast("Отметки сняты");
+      break;
     case "share": shareCSV(); break;
     case "save": saveCSV(); break;
     case "copy": copyCSV(); break;
